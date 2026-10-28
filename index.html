@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Camino de montaña al amanecer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,700;1,400&family=IM+Fell+English:ital@0;1&display=swap">
+<style>
+  /* Una sola pantalla: la ilustración jugable apoyada sobre la página de un cuaderno. */
+  :root {
+    --frame: #e6d6b9;      /* papel tostado alrededor de la ilustración */
+    --ink: #3d2615;        /* tinta sepia */
+    --paper: #f8f1e3;      /* papel de algodón */
+    --muted: #6e4528;
+    --font-title: "IM Fell English", "Iowan Old Style", Georgia, serif;
+    --font-text: "Alegreya", "Iowan Old Style", Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --frame: #1c1611; --ink: #f1e3c9; --paper: #2a2119; --muted: #d9b98f; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --frame: #1c1611; --ink: #f1e3c9; --paper: #2a2119; --muted: #d9b98f; color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--frame);
+    color: var(--ink);
+    font: 16px/1.5 var(--font-text);
+    overflow: hidden;
+    box-sizing: border-box;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #juego { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+  #juego:focus-visible { outline: 2px solid var(--muted); outline-offset: -2px; }
+  .sin-js { max-width: 34rem; margin: 20vh auto 0; text-align: center; }
+  .sin-js h1 { font: 400 2.2rem/1.15 var(--font-title); text-wrap: balance; margin: 0 0 0.6rem; }
+</style>
+</head>
+<body>
+<canvas id="juego" tabindex="0" role="application" aria-label="Videojuego en acuarela: Camino de montaña al amanecer. Flechas para caminar, Mayúsculas para correr, Espacio para saltar, flecha arriba para trepar y E para interactuar."></canvas>
+<noscript>
+  <div class="sin-js">
+    <h1>Camino de montaña al amanecer</h1>
+    <p>Este juego se pinta en el navegador con JavaScript. Actívalo para jugar.</p>
+  </div>
+</noscript>
+<script src="src/util.js"></script>
+<script src="src/palette.js"></script>
+<script src="src/textures.js"></script>
+<script src="src/paint.js"></script>
+<script src="src/art/props.js"></script>
+<script src="src/art/objects.js"></script>
+<script src="src/art/scenery.js"></script>
+<script src="src/chars/rig.js"></script>
+<script src="src/chars/girl.js"></script>
+<script src="src/chars/sheep.js"></script>
+<script src="src/chars/shepherd.js"></script>
+<script src="src/world/level.js"></script>
+<script src="src/world/layers.js"></script>
+<script src="src/world/physics.js"></script>
+<script src="src/world/camera.js"></script>
+<script src="src/world/entities.js"></script>
+<script src="src/world/ambient.js"></script>
+<script src="src/input.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/sheet.js"></script>
+<script src="src/game.js"></script>
+<script>
+  (function () {
+    var hot = window.claude && window.claude.hot;
+    var start = function (data) { JHS.start(data || {}); };
+    if (hot && hot.ready) hot.ready(start);
+    else start((hot && hot.data) || {});
+  })();
+</script>
+</body>
+</html>

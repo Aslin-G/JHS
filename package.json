@@ -1,0 +1,13 @@
+{
+  "name": "camino-de-montana-al-amanecer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Primera prueba jugable del videojuego 2D en acuarela (Biblia Visual §48).",
+  "scripts": {
+    "test": "node tools/recorrido.js",
+    "build": "python3 tools/build_artifact.py"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
