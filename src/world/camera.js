@@ -5,7 +5,7 @@
   'use strict';
   const U = JHS.U;
 
-  const FRAME_Y = 205; // los pies quedan ~70 % hacia abajo: más cielo, menos corte de suelo
+  const FRAME_Y = 236; // los pies quedan ~74 % hacia abajo: más cielo y menos corte de tierra
   const ZOOM = 1.12;   // encuadre de juego: la niña ocupa ~18 % del alto de pantalla
 
   function Camera(x, y) {
@@ -26,7 +26,8 @@
     if (b.grounded || b.climbing) this.refY = U.damp(this.refY, b.y, 5, dt);
     else if (b.y > this.refY + 70) this.refY = U.damp(this.refY, b.y - 70, 6, dt);
     else if (b.y < this.refY - 240) this.refY = U.damp(this.refY, b.y + 240, 6, dt);
-    const ty = this.refY - FRAME_Y / z;
+    // al agacharse un rato, la cámara se asoma hacia abajo
+    const ty = this.refY - FRAME_Y / z + (this.peek || 0);
     this.x = U.damp(this.x, tx, 4, dt);
     this.y = U.damp(this.y, ty, b.grounded ? 3.2 : 2.2, dt);
     this.clamp(L);

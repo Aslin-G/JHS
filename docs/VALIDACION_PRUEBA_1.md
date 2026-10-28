@@ -13,7 +13,7 @@ La escena es jugable de principio a fin y se reconoce el universo de la lámina:
 personajes, la paleta, la luz de amanecer entre nubes de tormenta y el papel. **Todavía no alcanza
 el 9/10 que exige §83**: comparado con la lámina, el juego tiene menos tinta, menos detalle y
 colores más pálidos, y el pelo de la niña tiene menos volumen. Por la regla de detención (§80)
-no se han producido aún los siete mundos; la lista de correcciones para la segunda pasada está al
+no se han producido aún los siete mundos; la lista de correcciones pendientes está al
 final.
 
 ## Autoevaluación por asset (§83)
@@ -26,7 +26,7 @@ Puntuaciones honestas sobre 10. Umbral de aprobación: 9 en personaje y en estil
 | Oveja | 8 | 7,5 | 8,5 | 7,5 | 8 | Cerca: falta relieve en los rizos |
 | Buen Pastor | 7 | 7 | 8 | 7 | 7 | Corregir melena y manto |
 | Cielo y montañas | — | 7,5 | 8 | 7 | 7,5 | Más pigmento cerca del sol |
-| Sendero, rocas, madera | — | 7 | 7,5 | 7 | 7 | Más tinta y detalle en las rocas |
+| Sendero, rocas, madera | — | 7,5 | 7,5 | 7,5 | 7,5 | Más tinta en las rocas (pendiente) |
 | Interfaz (papel y tinta) | — | 8 | 8,5 | 8 | 8 | Aprobable tras la segunda pasada |
 
 ### Qué sí está conseguido
@@ -100,26 +100,55 @@ Puntuaciones honestas sobre 10. Umbral de aprobación: 9 en personaje y en estil
 | | |
 | --- | --- |
 | ![Título](validacion/01_titulo.jpg) | ![El pastor en el sendero](validacion/02_sendero_pastor.jpg) |
-| ![Ramas del olivo](validacion/03_ramas_del_olivo.jpg) | ![Puente de cuerdas](validacion/04_puente_de_cuerdas.jpg) |
+| ![Ramas del olivo](validacion/03_ramas_del_olivo.jpg) | ![Puente de cuerdas y cascada](validacion/04_puente_de_cuerdas.jpg) |
 | ![Escalera](validacion/05_escalera.jpg) | ![Empujar la roca](validacion/06_empujar_la_roca.jpg) |
 | ![Mirador](validacion/07_mirador.jpg) | ![Final](validacion/08_final.jpg) |
-| ![Hoja: animaciones](validacion/09_hoja_animaciones.jpg) | ![Hoja: expresiones, escala y paleta](validacion/10_hoja_expresiones_escala_paleta.jpg) |
+| ![Hoja: animaciones](validacion/09_hoja_animaciones.jpg) | ![Hoja: animaciones nuevas](validacion/09b_hoja_animaciones_nuevas.jpg) |
+| ![Hoja: expresiones, escala y paleta](validacion/10_hoja_expresiones_escala_paleta.jpg) | ![Hoja: comparación con la lámina](validacion/11_hoja_comparacion_lamina.jpg) |
 
-![Hoja: comparación con la lámina](validacion/11_hoja_comparacion_lamina.jpg)
+Segunda pasada:
+
+| | |
+| --- | --- |
+| ![Recoger una campanilla](validacion/12_recoger_campanilla.jpg) | ![Sentada en el banco, con una mariposa en el pelo](validacion/13_banco.jpg) |
+| ![Equilibrio al borde de la grieta](validacion/14_grieta_equilibrio.jpg) | ![El regalo de las campanillas](validacion/15_regalo.jpg) |
+| ![Sacudir el árbol](validacion/16_sacudir_arbol.jpg) | ![El Pastor aparece en luz, entero](validacion/17_pastor_en_luz.jpg) |
+| ![La roca vista desde la esquina del escalón](validacion/18_roca_desde_la_esquina.jpg) | ![El valle y el pueblo desde el mirador](validacion/20_valle_y_pueblo.jpg) |
 
 ## Pruebas técnicas
 
 - **Recorrido automático** (`npm test`, o `node tools/recorrido.js`): un bot juega el nivel
-  completo dentro del bucle del juego. Resultado de la última ejecución: llega a la pantalla final
-  en 49,8 s de juego, sin caídas, con la página del diario, 5 de 7 semillas (las dos secretas
-  quedan fuera de su ruta), la oveja en el mirador y sin errores en la página.
-- **Carga:** 5,3 s en Chromium sin ventana (render por software); 86 MB de lienzos de capas.
+  completo dentro del bucle del juego, con paso de tiempo fijo. Resultado de la última ejecución:
+  llega a la pantalla final en 56 s de juego, sin caídas, con la página del diario, 8 de 8
+  semillas (incluida la que cae al sacudir el árbol), 4 de 5 campanillas regaladas al Pastor, la
+  oveja en el mirador y sin errores en la página.
+- **Sonido:** los efectos se renderizaron sin conexión para medir niveles: ningún pico pasa de
+  −14 dBFS; el fondo (viento, pájaros y música) queda por debajo de los efectos importantes.
+- **Carga:** 6,4 s en Chromium sin ventana (render por software); 87 MB de lienzos de capas.
 - **Móvil:** probado en un teléfono emulado de 844×390 en horizontal (controles táctiles) y en
   vertical (pide girar el teléfono).
 - **No probado:** rendimiento con GPU real ni navegadores Safari o Firefox. En Chromium sin GPU la
   escena rinde entre 24 y 29 cuadros por segundo con seis actualizaciones por cuadro.
 
-## Segunda pasada propuesta (antes de la Fase E)
+## Segunda pasada (revisión del 28 de octubre de 2026)
+
+Fallos señalados en la revisión y su corrección:
+
+| Fallo | Causa | Corrección |
+| --- | --- | --- |
+| Al desvanecerse el Pastor quedaban mechones de pelo flotando | los mechones y la cara se pintaban con opacidad absoluta | cada personaje se compone entero fuera de pantalla y se funde de una vez (`Rig.faded`); lo mismo para la niña y la oveja |
+| La roca que se empuja se veía rara desde la esquina | era una bola con el punto de apoyo en el centro | piedra facetada apoyada en su base, con sombra de contacto, cara superior iluminada y un leve balanceo al arrastrarla |
+
+Encontrados durante esta revisión y corregidos: rayas horizontales en el desfiladero (filas de
+sombra solapadas), trazos «digitales» en su pared del fondo, una grieta que era un bloque oscuro
+plano, un **mosaico cuadrado en la tierra** (el relieve del papel salía de ruido en rejilla; ahora
+es ruido isótropo, como el diente del papel prensado), el banco del sendero flotando y la oveja
+que se metía debajo de la niña al retroceder.
+
+Añadido en animación, interactividad y detalle: ver la sección «Segunda pasada» del
+[README](../README.md) y la nueva página de la hoja de personajes (captura `09b`).
+
+## Pendiente para la siguiente pasada (fidelidad a la lámina, antes de la Fase E)
 
 1. Rehacer el pelo de la niña con rizos en espiral superpuestos, más volumen hacia los lados y
    reflejos rojizos; añadir trazos de tinta negra en los rizos exteriores.

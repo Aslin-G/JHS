@@ -8,6 +8,57 @@
   const PS = 512; // lado del campo de papel
   const BS = 256; // lado del campo de manchas
 
+  // Desenfoque de caja sobre un toro (los bordes se dan la mano: la textura se repite sin costura).
+  function wrapBlur(src, size, r, passes) {
+    const m = size - 1, inv = 1 / (2 * r + 1);
+    let a = new Float32Array(src), b = new Float32Array(src.length);
+    for (let p = 0; p < passes; p++) {
+      for (let y = 0; y < size; y++) {
+        const row = y * size;
+        let s = 0;
+        for (let k = -r; k <= r; k++) s += a[row + (k & m)];
+        for (let x = 0; x < size; x++) {
+          b[row + x] = s * inv;
+          s += a[row + ((x + r + 1) & m)] - a[row + ((x - r) & m)];
+        }
+      }
+      for (let x = 0; x < size; x++) {
+        let s = 0;
+        for (let k = -r; k <= r; k++) s += b[(k & m) * size + x];
+        for (let y = 0; y < size; y++) {
+          a[y * size + x] = s * inv;
+          s += b[((y + r + 1) & m) * size + x] - b[((y - r) & m) * size + x];
+        }
+      }
+    }
+    return a;
+  }
+
+  // Lleva un campo a una media y desviación dadas.
+  function standardize(f, mean, sd) {
+    let m = 0;
+    for (let i = 0; i < f.length; i++) m += f[i];
+    m /= f.length;
+    let v = 0;
+    for (let i = 0; i < f.length; i++) v += (f[i] - m) * (f[i] - m);
+    const k = sd / (Math.sqrt(v / f.length) || 1);
+    const out = new Float32Array(f.length);
+    for (let i = 0; i < f.length; i++) out[i] = (f[i] - m) * k + mean;
+    return out;
+  }
+
+  // Diente del papel: ruido blanco difuminado a dos escalas. Es isótropo, como las fibras
+  // prensadas; el ruido de valor en rejilla dejaba celdas cuadradas visibles en los pigmentos densos.
+  function tooth(size, seed) {
+    const rng = U.makeRng(seed);
+    const w = new Float32Array(size * size);
+    for (let i = 0; i < w.length; i++) w[i] = rng.next();
+    const micro = standardize(wrapBlur(w, size, 1, 2), 0, 1), medium = standardize(wrapBlur(w, size, 2, 3), 0, 1);
+    const f = new Float32Array(w.length);
+    for (let i = 0; i < f.length; i++) f[i] = micro[i] * 0.35 + medium[i] * 0.65;
+    return f;
+  }
+
   const Tex = {
     ready: false,
     H: null,      // relieve del papel [0,1]
@@ -19,14 +70,13 @@
 
     init(seed = 7) {
       // Relieve: diente fino del papel prensado en frío (rasgos de 3–8 px) sobre una ondulación suave.
-      const coarse = U.makeField(PS, 16, 3, seed, 0.5);
-      const fine = U.makeField(PS, 96, 2, seed + 9, 0.55);
-      const H = new Float32Array(PS * PS);
-      for (let i = 0; i < H.length; i++) H[i] = coarse[i] * 0.3 + fine[i] * 0.7;
-      // Normalizar
-      let mn = Infinity, mx = -Infinity;
-      for (let i = 0; i < H.length; i++) { if (H[i] < mn) mn = H[i]; if (H[i] > mx) mx = H[i]; }
-      for (let i = 0; i < H.length; i++) H[i] = (H[i] - mn) / (mx - mn);
+      const coarse = standardize(wrapBlur(U.makeField(PS, 16, 3, seed, 0.5), PS, 3, 2), 0, 1);
+      const fine = tooth(PS, seed + 9);
+      const mix = new Float32Array(PS * PS);
+      for (let i = 0; i < mix.length; i++) mix[i] = coarse[i] * 0.3 + fine[i] * 0.7;
+      // misma media y contraste que el papel anterior, recortado a [0,1]
+      const H = standardize(mix, 0.476, 0.14);
+      for (let i = 0; i < H.length; i++) H[i] = H[i] < 0 ? 0 : H[i] > 1 ? 1 : H[i];
       this.H = H;
 
       // Sombreado del relieve con luz rasante desde arriba a la derecha.
@@ -77,7 +127,15 @@
 
     grainAt(x, y) { return this.grain[((y | 0) & (PS - 1)) * PS + ((x | 0) & (PS - 1))]; },
     shadeAt(x, y) { return this.shade[((y | 0) & (PS - 1)) * PS + ((x | 0) & (PS - 1))]; },
-    blotchAt(x, y) { return this.blotch[((y | 0) & (BS - 1)) * BS + ((x | 0) & (BS - 1))]; },
+    // interpolado: se muestrea a escala reducida y sin interpolar dejaba escalones de 4–5 px
+    blotchAt(x, y) {
+      const B = this.blotch, m = BS - 1;
+      const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+      const r0 = (y0 & m) * BS, r1 = ((y0 + 1) & m) * BS, c0 = x0 & m, c1 = (x0 + 1) & m;
+      const a = B[r0 + c0] + (B[r0 + c1] - B[r0 + c0]) * fx;
+      const b = B[r1 + c0] + (B[r1 + c1] - B[r1 + c0]) * fx;
+      return a + (b - a) * fy;
+    },
 
     pattern(ctx) {
       return ctx.createPattern(this.paper, 'repeat');

@@ -362,5 +362,56 @@
     });
   }
 
-  JHS.Props = { RES, smoothBlob, paintRockShape, rock, grassTuft, flower, tree, woodLimb, branch };
+  // Campanilla del camino: tallo curvo con tres campanas lila azulado colgando (se recoge).
+  function bellCup(g, x, y, r, ang, seed) {
+    g.save();
+    g.translate(x, y);
+    g.rotate(ang);
+    const cup = [[-r * 0.55, 0], [-r * 0.75, r * 0.9], [-r * 0.95, r * 1.45], [-r * 0.45, r * 1.25], [0, r * 1.5], [r * 0.45, r * 1.25], [r * 0.95, r * 1.45], [r * 0.75, r * 0.9], [r * 0.55, 0]];
+    const poly = U.spline(cup, 3, true);
+    Paint.wash(g, poly, P.bell, { layers: 3, alpha: 0.45, amp: 0.25, seed, edge: 0.3, core: 1, vary: P.bellLight, varyAmt: 0.4 });
+    Paint.within(g, poly, () => Paint.shade(g, [[-r * 2, 0], [-r * 0.1, 0], [-r * 0.2, r * 2], [-r * 2, r * 2]], P.bellShade, { layers: 2, alpha: 0.3, amp: 1, seed: seed + 1, edge: 0 }));
+    Paint.ink(g, poly, { closed: true, w: 0.8, alpha: 0.8, seed: seed + 2, breaks: 0.15 });
+    g.restore();
+  }
+
+  function bellflower(seed) {
+    const rng = U.makeRng(seed);
+    const h = rng.range(30, 38);
+    return Paint.makeSprite({ w: 50, h: h + 20, ox: 22, oy: h + 8, res: RES * 1.5 }, (g) => {
+      const stem = Paint.quadPts(0, 0, -2, -h * 0.6, 9, -h, 8);
+      Paint.ink(g, stem, { w: 1.3, color: P.grassDark, alpha: 0.9, seed, taper: 0.1, wobble: 0.2 });
+      for (let i = 0; i < 2; i++) {
+        const s = i ? 1 : -1, y = -rng.range(3, 10);
+        Paint.wash(g, U.spline([[0, y], [s * 6, y - 6], [s * 12, y - 5], [s * 5, y + 1]], 3, true), P.grass, { layers: 3, alpha: 0.5, amp: 0.4, seed: seed + i, edge: 0.35 });
+      }
+      // tres campanas colgando de pedúnculos finos
+      const at = [[0.55, -0.2], [0.78, 0.25], [1, 0.6]];
+      at.forEach(([t, a], i) => {
+        const k = Math.min(stem.length - 1, Math.round(t * (stem.length - 1)));
+        const [x, y] = stem[k];
+        const px = x + 4 + i * 1.5, py = y + 3;
+        Paint.ink(g, [[x, y], [px, py]], { w: 0.7, color: P.grassDark, alpha: 0.85, seed: seed + 10 + i });
+        bellCup(g, px, py, 3.3 - i * 0.2, a * 0.6, seed + 20 + i * 3);
+      });
+    });
+  }
+
+  // Ramillete de campanillas (en la mano de la niña y en el marcador).
+  function bouquet(seed) {
+    return Paint.makeSprite({ w: 36, h: 40, ox: 12, oy: 26, res: 2.4 }, (g) => {
+      const rng = U.makeRng(seed);
+      for (let i = 0; i < 5; i++) {
+        const a = -1.1 + i * 0.32 + rng.range(-0.08, 0.08);
+        const len = rng.range(16, 22);
+        const ex = Math.cos(a) * len, ey = Math.sin(a) * len;
+        Paint.ink(g, [[0, 0], [ex * 0.5, ey * 0.5 - 1], [ex, ey]], { w: 0.9, color: P.grassDark, alpha: 0.9, seed: seed + i, taper: 0.1 });
+        bellCup(g, ex, ey, 3, a + Math.PI / 2 - 0.4, seed + 30 + i);
+      }
+      // lazo de hierba
+      Paint.ink(g, [[-2, 2], [2, 4], [5, 1]], { w: 1.2, color: P.grass, alpha: 0.9, seed: seed + 50 });
+    });
+  }
+
+  JHS.Props = { RES, smoothBlob, paintRockShape, rock, grassTuft, flower, tree, woodLimb, branch, bellflower, bouquet };
 })(window.JHS = window.JHS || {});

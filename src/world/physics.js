@@ -123,6 +123,7 @@
       if (b.buffer > 0) {
         b.climbing = null; b.buffer = 0;
         b.vy = -K.jumpV * 0.75; b.vx = (inp.x || b.facing) * K.walk; b.grounded = false; b.mode = 'air';
+        b.jumpedNow = true;
       }
       return;
     }
@@ -181,6 +182,7 @@
       b.grounded = false; b.coyote = 0; b.buffer = 0;
       b.jumpHeld = true;
       b.pushing = null;
+      b.jumpedNow = true;
     }
     if (b.jumpHeld && !inp.jumpHeld && b.vy < 0) { b.vy *= K.jumpCut; b.jumpHeld = false; }
     if (b.vy >= 0) b.jumpHeld = false;

@@ -7,7 +7,7 @@
   const map = {
     left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'],
     jump: ['Space', 'KeyZ', 'KeyK'], run: ['ShiftLeft', 'ShiftRight', 'KeyX', 'KeyJ'], act: ['KeyE', 'KeyF', 'Enter', 'NumpadEnter'],
-    pause: ['Escape', 'KeyP'], sheet: ['KeyH'],
+    call: ['KeyC', 'KeyQ'], pause: ['Escape', 'KeyP'], sheet: ['KeyH'], mute: ['KeyM'],
   };
   const touch = { active: false, ids: new Map(), btn: {}, prevBtn: {}, lastDirTap: { dir: 0, t: 0 }, runLatch: false };
   const gp = { btn: {}, prev: {} };
@@ -23,6 +23,7 @@
   const BTN = {
     left: { x: 150, y: 950, r: 78 }, right: { x: 335, y: 950, r: 78 },
     jump: { x: 1770, y: 930, r: 86 }, act: { x: 1585, y: 990, r: 62 }, up: { x: 242, y: 800, r: 56 },
+    down: { x: 242, y: 1030, r: 40 }, call: { x: 1600, y: 840, r: 46 },
     pause: { x: 1840, y: 80, r: 44 },
   };
 
@@ -75,7 +76,8 @@
     gp.btn.down = ay > 0.5 || b(13);
     gp.btn.jump = b(0);
     gp.btn.run = b(2) || b(7) || b(5);
-    gp.btn.act = b(1) || b(3);
+    gp.btn.act = b(1);
+    gp.btn.call = b(3);
     gp.btn.pause = b(9);
     gp.x = Math.abs(ax) > 0.35 ? Math.sign(ax) : 0;
   }

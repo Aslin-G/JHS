@@ -41,15 +41,24 @@
     ],
     bridge: { x0: 3170, x1: 3770, y0: 796, y1: 792, sag: 34, holes: [[3360, 3412], [3540, 3592]] },
     ladders: [{ x: 4596, top: 476, bottom: 778 }],
-    tunnel: { from: { x: 4652, y: 778 }, to: { x: 4716, y: 472 } },
-    pushables: [{ x: 5800, w: 112, h: 106, stopX: 6150 }],
+    tunnel: { from: { x: 4654, y: 778 }, to: { x: 4700, y: 472, holeX: 4650, holeY: 518 } },
+    pushables: [{ x: 5800, w: 124, h: 98, stopX: 6136 }],
 
     lanterns: [{ x: 2300 }, { x: 4830 }, { x: 7450 }],
     chest: { x: 6380, page: true },
     seeds: [
       { x: 1925, y: 616 }, { x: 2712, y: 600 }, { x: 2880, y: 482, secret: true }, { x: 3466, y: 676 },
       { x: 5150, y: 330 }, { x: 5470, y: 392, secret: true }, { x: 6990, y: 118 },
+      // escondida en la copa del árbol del escalón: cae al sacudirlo
+      { x: 4992, y: 120, inTree: 4980, secret: true },
     ],
+    // campanillas del camino: se recogen y se ofrecen al Pastor en el mirador
+    flowers: [{ x: 905 }, { x: 2468 }, { x: 4268 }, { x: 5578 }, { x: 7392 }],
+    // árboles que se pueden sacudir (caen hojas y, en uno, una semilla)
+    shakeTrees: [{ x: 1320 }, { x: 4980 }],
+    // pajarillos posados que echan a volar al acercarse
+    birds: [{ x: 1180, n: 3 }, { x: 4080, n: 2 }, { x: 6560, n: 3 }, { x: 7660, n: 2 }],
+    sign: { x: 640, lines: ['Mirador ↑ · Pueblo de las Luces, abajo en el valle.', 'Cuidado con el puente: le faltan tablas.'] },
 
     // El Pastor guía sin resolver (§31): aparece en paradas y habla con calma.
     shepherd: [
@@ -67,12 +76,19 @@
       text: ['Hoy el camino subía y la mochila pesaba.', 'Pero cada vez que miré atrás,', 'alguien caminaba conmigo.'],
     },
     ending: ['Mira cuánto has subido.', 'Cada paso valió la pena. Mañana el camino seguirá.'],
+    gift: {
+      girl: ['Son para ti. Las encontré por el camino.'],
+      shepherd: ['Gracias, pequeña.', 'Las flores más bonitas crecen en las subidas.'],
+    },
+    // respuestas cuando se vuelve a hablar con el Pastor
+    chat: ['Aquí estoy. Sigue el sendero; no vas sola.', 'Si te cansas, siéntate un rato. El camino espera.',
+      'Tu oveja te sigue a todas partes. Llámala si se queda atrás.', 'Mira bien a tu alrededor: hay semillas escondidas.'],
 
     // Decorado del plano jugable
     decor: {
       fence: [{ x0: 70, x1: 360 }],
       sign: [{ x: 640, text: 'Mirador' }],
-      bench: [{ x: 8040 }],
+      bench: [{ x: 1440 }, { x: 8040 }],
       trees: [
         { x: 1320, h: 560, seed: 4, behind: true },
         { x: 2790, h: 640, seed: 9, branches: true },

@@ -53,8 +53,6 @@
     const rng = U.makeRng(301);
     const out = woolOutline(48, 31, 15, rng);
     const poly = U.spline(out.filter((_, i) => i % 2 === 0), 2, true);
-    const tail = woolOutline(8, 7, 6, rng, -47, -4);
-    Paint.wash(g, tail, P.wool, { layers: 5, alpha: 0.3, amp: 0.8, seed: 302, edge: 0.3, core: 1 });
     Paint.wash(g, poly, U.mix(P.wool, P.woolMid, 0.3), { layers: 7, alpha: 0.24, amp: 1.2, seed: 303, edge: 0.25, core: 1, vary: P.woolMid, varyAmt: 0.5 });
     Paint.within(g, poly, () => {
       Paint.shade(g, U.blobPoly(-4, 24, 52, 18, 14, rng, 0.2), P.woolMid, { layers: 6, alpha: 0.16, amp: 5, seed: 304, edge: 0 });
@@ -122,6 +120,24 @@
     g.globalAlpha = 1;
   }
 
+  // Cola: un mechón de lana rizada que se mueve aparte (se menea cuando está contenta).
+  function paintTail(g) {
+    const rng = U.makeRng(351);
+    const tail = woolOutline(8, 9, 6, rng, -5, 6);
+    Paint.wash(g, tail, P.wool, { layers: 5, alpha: 0.3, amp: 0.8, seed: 302, edge: 0.3, core: 1 });
+    Paint.within(g, tail, () => {
+      for (let i = 0; i < 9; i++) curl(g, -5 + rng.range(-6, 6), 6 + rng.range(-7, 7), rng.range(1.8, 2.8), rng.chance(0.5) ? P.woolLight : P.woolDark, 0.8, 0.7, rng);
+      Paint.splatter(g, -5, 6, 7, 8, 8, P.woolFleck, { alpha: 0.8, rmin: 0.35, rmax: 0.8, seed: 352 });
+    });
+    const R = U.resample(tail, 5, true);
+    for (let i = 0; i < R.length; i++) {
+      const [x, y] = R[i];
+      const a = Math.atan2(y - 6, x + 5);
+      Paint.ink(g, [[x + Math.cos(a - 1.2) * 3, y + Math.sin(a - 1.2) * 3], [x + Math.cos(a) * 1.6, y + Math.sin(a) * 1.6], [x + Math.cos(a + 1.2) * 3, y + Math.sin(a + 1.2) * 3]], { w: 0.9, alpha: 0.75, seed: 353 + i, taper: 0.35 });
+    }
+    g.globalAlpha = 1;
+  }
+
   function paintEar(g, far) {
     const ear = U.spline([[0, -1.5], [-6, -4.2], [-13.5, -3.5], [-17.5, 0.5], [-12, 3.4], [-4, 3]], 3, true);
     const inner = U.spline([[-2.5, -0.6], [-7, -2.2], [-13, -1.4], [-14, 0.8], [-8, 1.8]], 3, true);
@@ -142,6 +158,7 @@
     S.head = mk(40, 36, 13, 20, paintHead);
     S.earN = mk(22, 12, 19, 6, (g) => paintEar(g, false));
     S.earF = mk(22, 12, 19, 6, (g) => paintEar(g, true));
+    S.tail = mk(30, 34, 15, 4, paintTail);
   }
 
   function create(x, y) {
@@ -150,6 +167,8 @@
       anim: 'idle', animT: 0, phase: 0, t: Math.random() * 10, speed: 0, grounded: true,
       blinkT: 1.5, blink: 0, earT: 2, ear: 0, expr: 'contenta', exprT: 0,
       headLook: 0, chew: 0, pose: null,
+      // cola, balido (bocadillo «¡Beee!») y hacia dónde mira (una mariposa, la niña)
+      tail: 0, tailV: 0, wag: 0, bleatT: 0, bleatText: '¡Beee!', lookAt: null, lookK: 0,
     };
   }
 
@@ -196,6 +215,8 @@
       } else {
         ps.bodyY = -Math.abs(Math.sin(ph)) * 1.4;
         ps.bodyRot = Math.sin(ph * 2) * 0.012;
+        ps.sy = 1 + Math.abs(Math.cos(ph)) * 0.018;
+        ps.sx = 1 - Math.abs(Math.cos(ph)) * 0.01;
         const sw = [Math.sin(ph), Math.sin(ph + Math.PI), Math.sin(ph + Math.PI), Math.sin(ph)];
         for (let i = 0; i < 4; i++) { ps.legs[i].swing = sw[i] * 0.38; ps.legs[i].lift = Math.max(0, Math.cos(ph + (i === 1 || i === 2 ? Math.PI : 0))) * 0.35; }
         ps.headY = Math.sin(ph * 2) * 1.1;
@@ -253,6 +274,27 @@
       ps.headY = br * 0.8;
       ps.headRot = Math.sin(s.t * 0.5) * 0.05 + s.headLook;
     }
+    // mirar hacia algo: la cabeza se levanta o baja hacia ello
+    if (s.lookAt && (a === 'idle' || a === 'lookup' || a === 'walk')) {
+      const dx = (s.lookAt.x - s.x) * s.facing, dy = s.lookAt.y - (s.y - 60);
+      const want = dx > -20 ? U.clamp(Math.atan2(dy, Math.abs(dx) + 50) * 0.6, -0.45, 0.3) : 0;
+      s.lookK = U.damp(s.lookK, want, 4, dt);
+    } else s.lookK = U.damp(s.lookK, 0, 4, dt);
+    ps.headRot += s.lookK;
+    // cola: meneo rápido si está contenta, vaivén lento si no
+    s.wag = Math.max(0, s.wag - dt);
+    const wagAmp = s.wag > 0 || a === 'happy' ? 0.55 : a === 'run' ? 0.25 : 0.08;
+    const tailT = Math.sin(s.t * (s.wag > 0 || a === 'happy' ? 19 : 2.2)) * wagAmp + (a === 'run' ? -0.35 : 0);
+    s.tailV += ((tailT - s.tail) * 220 - s.tailV * 12) * Math.min(dt, 0.05);
+    s.tail += s.tailV * Math.min(dt, 0.05);
+    ps.tail = s.tail;
+    // balido: boca abierta y la cabeza un poco hacia arriba
+    if (s.bleatT > 0) {
+      s.bleatT -= dt;
+      const k = U.smoothstep(0, 0.12, 1.2 - s.bleatT) * U.smoothstep(0, 0.2, s.bleatT);
+      ps.mouth = 'open';
+      ps.headRot -= 0.16 * k;
+    }
     if (s.blink > 0 && ps.eyes === 'open') ps.eyes = 'blink';
     if (s.exprT > 0) {
       if (s.expr === 'contenta') { ps.eyes = 'happy'; ps.mouth = 'smile'; }
@@ -307,13 +349,19 @@
     }
   }
 
+  const BOX = [-85, -125, 85, 24];
+
   function draw(ctx, s) {
     const ps = s.pose;
-    if (!ps) return;
+    if (!ps || s.alpha <= 0.004) return;
     ctx.save();
     ctx.translate(s.x + (ps.jitter ? Math.sin(s.t * 70) * ps.jitter : 0), s.y);
     ctx.scale(s.facing * s.scale, s.scale);
-    if (s.alpha < 1) ctx.globalAlpha = s.alpha;
+    Rig.faded(ctx, s.alpha, BOX, (c) => drawBody(c, s, ps));
+    ctx.restore();
+  }
+
+  function drawBody(ctx, s, ps) {
     const bx = M.body[0] + ps.bodyX, by = M.body[1] + ps.bodyY;
     const c = Math.cos(ps.bodyRot), sn = Math.sin(ps.bodyRot);
     const toBody = (x, y) => {
@@ -336,11 +384,12 @@
     ctx.scale(HEAD_K, HEAD_K);
     ctx.save(); ctx.translate(15, -9); ctx.scale(-1, 1); ctx.rotate(0.25 - ps.earRot); Rig.part(ctx, S.earF, 0, 0); ctx.restore();
     ctx.restore();
-    // cuerpo de lana
+    // cola (detrás) y cuerpo de lana
     ctx.save();
     ctx.translate(bx, by);
     ctx.rotate(ps.bodyRot);
     ctx.scale(ps.sx, ps.sy);
+    Rig.part(ctx, S.tail, -44, -6, -0.35 + (ps.tail || 0));
     Rig.part(ctx, S.body, 0, 0);
     ctx.restore();
     // cabeza, oreja cercana y cara
@@ -352,8 +401,31 @@
     drawFace(ctx, ps);
     ctx.save(); ctx.translate(-4, -4); ctx.rotate(0.35 + ps.earRot); Rig.part(ctx, S.earN, 0, 0); ctx.restore();
     ctx.restore();
+  }
+
+  function bleat(s, text) {
+    s.bleatT = 1.2;
+    s.bleatText = text || (Math.random() < 0.5 ? '¡Beee!' : '¡Mee!');
+    s.wag = 1.5;
+  }
+
+  // Bocadillo de papel con el balido, sobre la cabeza (se dibuja en espacio de mundo).
+  function drawBubble(ctx, s) {
+    if (s.bleatT <= 0 || s.alpha < 0.5) return;
+    const k = U.smoothstep(0, 0.15, 1.2 - s.bleatT) * U.smoothstep(0, 0.25, s.bleatT);
+    const x = s.x + s.facing * 26, y = s.y - 118 - (1 - k) * 8;
+    ctx.save();
+    ctx.globalAlpha = k;
+    ctx.translate(x, y);
+    ctx.rotate(-0.06 * s.facing);
+    ctx.font = 'italic 700 19px "Alegreya", Georgia, serif';
+    const w = ctx.measureText(s.bleatText).width + 26;
+    Paint.paperScrap(ctx, -w / 2, -17, w, 32, { seed: 404, rough: 1.6 });
+    ctx.fillStyle = P.ink;
+    ctx.textAlign = 'center';
+    ctx.fillText(s.bleatText, 0, 6);
     ctx.restore();
   }
 
-  JHS.Sheep = { M, S, build, create, update, draw, setAnim };
+  JHS.Sheep = { M, S, build, create, update, draw, setAnim, bleat, drawBubble };
 })(window.JHS = window.JHS || {});

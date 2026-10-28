@@ -18,7 +18,7 @@
     this.tun = null;
     this.hint = null;
   }
-  const FOLLOW = 104;
+  const FOLLOW = 134;
 
   SheepCtl.prototype.reset = function (x, y) {
     this.trail = [{ x, y, ok: true, g: true, climb: false, d: 0, kind: 'ground' }];
@@ -41,6 +41,18 @@
     if (!ok) {
       // los puntos en el aire que llevan a un lugar prohibido tampoco valen
       for (let i = T.length - 1; i > 0 && !T[i].g && T[i].ok; i--) T[i].ok = false;
+    }
+    // Si la niña vuelve sobre sus pasos, se recorta el bucle del rastro: así la oveja no sigue
+    // hasta el punto más lejano ni la atraviesa, sino que se aparta y la sigue de cerca.
+    let cut = -1;
+    for (let i = T.length - 2; i >= 0 && T[i].d >= this.d + 4; i--) {
+      if (Math.abs(T[i].x - b.x) < 9 && Math.abs(T[i].y - b.y) < 14 && T[i].ok === ok) cut = i;
+    }
+    if (cut >= 0) {
+      T.length = cut + 1;
+      const c = T[cut];
+      T.push({ x: b.x, y: b.y, ok, g, climb, d: c.d + Math.hypot(b.x - c.x, b.y - c.y), kind: b.grounded ? b.surface : 'air' });
+      return;
     }
     T.push({ x: b.x, y: b.y, ok, g, climb, d: last.d + dist, kind: b.grounded ? b.surface : 'air' });
     // podar lo muy antiguo
@@ -66,10 +78,20 @@
     return { x: U.lerp(a.x, b.x, t), y: U.lerp(a.y, b.y, t), i, kind: b.kind };
   };
 
+  // La niña la llama: se despierta, bala y acude deprisa.
+  SheepCtl.prototype.call = function () {
+    this.hurry = 4;
+    this.idleT = 0;
+    this.bleatIn = 0.45;
+    if (this.s.anim === 'sleep' || this.s.anim === 'eat') JHS.Sheep.setAnim(this.s, 'idle');
+  };
+
   SheepCtl.prototype.update = function (dt, girl, ctx) {
     const s = this.s, T = this.trail, Sheep = JHS.Sheep;
     const head = T[T.length - 1].d;
     const target = Math.max(0, head - FOLLOW);
+    this.hurry = Math.max(0, (this.hurry || 0) - dt);
+    if (this.bleatIn > 0) { this.bleatIn -= dt; if (this.bleatIn <= 0) { Sheep.bleat(s); if (JHS.Sound) JHS.Sound.play('bleat'); } }
     let moving = 0;
     const px = s.x, py = s.y;
 
@@ -90,7 +112,7 @@
       // seguir el rastro
       if (this.d < target - 1) {
         const gap = target - this.d;
-        const v = U.clamp(gap * 2.1, 70, gap > 420 ? 520 : 350);
+        const v = U.clamp(gap * 2.1, 70, gap > 420 ? 520 : 350) * (this.hurry > 0 ? 1.5 : 1);
         let nd = Math.min(target, this.d + v * dt);
         const i0 = this.indexAt(this.d), i1 = this.indexAt(nd);
         let blocked = -1;
@@ -120,6 +142,11 @@
           return;
         }
         this.d = nd;
+        moving = v;
+      } else if (this.d > target + 1) {
+        // la niña ha vuelto hacia ella: retroceder por el rastro para dejarle sitio
+        const v = U.clamp((this.d - target) * 2.4, 60, 300);
+        this.d = Math.max(target, this.d - v * dt);
         moving = v;
       }
       const p = this.pointAt(this.d);
@@ -190,16 +217,32 @@
       if (k >= 1) { tun.phase = 'hidden'; tun.t = 0; }
     } else if (tun.phase === 'hidden') {
       s.alpha = 0;
-      if (tun.t > 1.1) { tun.phase = 'out'; tun.t = 0; s.x = T.to.x; s.y = T.to.y; s.facing = 1; JHS.Ambient.burst('wool', s.x, s.y - 30, 10); }
+      if (tun.t > 1.1) { tun.phase = 'out'; tun.t = 0; s.x = T.to.holeX; s.y = T.to.holeY; s.facing = 1; }
     } else if (tun.phase === 'out') {
-      const k = U.clamp(tun.t / 0.6, 0, 1);
-      s.alpha = k; s.scale = 0.65 + k * 0.35;
-      Sheep.setAnim(s, k < 1 ? 'walk' : 'shake');
-      s.speed = 50;
-      if (tun.t > 1.3) {
+      // asoma por el hueco del muro y salta arriba
+      const k = U.clamp(tun.t / 0.5, 0, 1);
+      s.alpha = k; s.scale = 0.7 + k * 0.3;
+      Sheep.setAnim(s, 'walk');
+      s.speed = 60;
+      if (tun.t > 0.55) {
         s.alpha = 1; s.scale = 1;
-        this.startHop(s.x, s.y, tun.dest);
+        tun.phase = 'climb'; tun.t = 0;
+        this.hop = { x0: s.x, y0: s.y, x1: T.to.x, y1: T.to.y, h: 34, t: 0, dur: 0.45, d1: 0 };
+        JHS.Ambient.burst('dust', T.to.holeX + 10, T.to.holeY - 6, 4);
       }
+    } else if (tun.phase === 'climb') {
+      const h = this.hop;
+      h.t = Math.min(h.dur, h.t + dt);
+      const k = h.t / h.dur;
+      s.x = U.lerp(h.x0, h.x1, k);
+      s.y = U.lerp(h.y0, h.y1, k) - h.h * 4 * k * (1 - k);
+      s.vy = -300 + 600 * k;
+      Sheep.setAnim(s, 'jump');
+      if (h.t >= h.dur) { tun.phase = 'shake'; tun.t = 0; JHS.Ambient.burst('wool', s.x, s.y - 30, 10); }
+    } else if (tun.phase === 'shake') {
+      Sheep.setAnim(s, 'shake');
+      s.speed = 0;
+      if (tun.t > 0.8) this.startHop(s.x, s.y, tun.dest);
     }
   };
 
@@ -247,9 +290,13 @@
     if (this.state === 'finale') return this.updateFinale(dt, girl, ui);
     if (!st) { s.alpha = 0; return; }
     const dx = girl.x - s.x;
+    s.bend = false;
     if (this.state === 'wait') {
       if (Math.abs(dx) < 700) s.facing = dx >= 0 ? 1 : -1;
-      Sh.setAnim(s, 'idle');
+      // saluda con la mano cuando la ve llegar
+      if (!this.waved) this.waved = new Set();
+      if (!this.waved.has(this.i) && Math.abs(dx) < st.radius + 320) { this.waved.add(this.i); this.waveT = 1.6; }
+      if (this.waveT > 0) { this.waveT -= dt; Sh.setAnim(s, 'wave'); } else Sh.setAnim(s, 'idle');
       if (Math.abs(dx) < st.radius && !this.talked.has(this.i)) {
         this.talked.add(this.i);
         this.state = 'talk';
@@ -259,6 +306,7 @@
       s.facing = dx >= 0 ? 1 : -1;
       Sh.setAnim(s, 'speak');
       s.talking = ui.speaking();
+      s.bend = Math.abs(dx) < 200;
       if (Math.abs(dx) > 900) { ui.cancel(); this.state = 'gesture'; }
     } else if (this.state === 'gesture') {
       s.talking = false;
@@ -267,7 +315,9 @@
       if (this.t > 1.8) { this.state = 'near'; this.t = 0; }
     } else if (this.state === 'near') {
       if (Math.abs(dx) < 700) s.facing = dx >= 0 ? 1 : -1;
-      Sh.setAnim(s, 'idle');
+      Sh.setAnim(s, this.chatting ? 'speak' : 'idle');
+      s.talking = this.chatting && ui.speaking();
+      s.bend = this.chatting && Math.abs(dx) < 200;
       const next = this.L.shepherd[this.i + 1];
       if (girl.x > s.x + 640 || (next && girl.x > next.x - 1300)) { this.state = 'leave'; this.t = 0; this.leaveX = s.x; }
     } else if (this.state === 'leave') {
@@ -311,9 +361,10 @@
     this.s.facing = 1;
   };
 
-  ShepherdCtl.prototype.updateFinale = function (dt) {
+  ShepherdCtl.prototype.updateFinale = function (dt, girl, ui) {
     const s = this.s, Sh = JHS.Shepherd, f = this.fin;
     f.t += dt;
+    s.talking = f.mode === 'speak' && !!ui && ui.speaking();
     s.alpha = Math.min(1, s.alpha + dt * 0.7);
     if (s.alpha < 1 && Math.random() < dt * 16) JHS.Ambient.burst('light', s.x + U.lerp(-34, 34, Math.random()), s.y - Math.random() * 280, 1);
     if (s.x < f.toX) {
@@ -325,6 +376,8 @@
       Sh.setAnim(s, 'bless');
     } else if (f.mode === 'speak') {
       Sh.setAnim(s, 'speak');
+    } else if (f.mode === 'kneel') {
+      Sh.setAnim(s, 'kneel');
     } else {
       Sh.setAnim(s, 'look');
     }
@@ -333,46 +386,82 @@
   // ------------------------------------------------------------------ objetos interactivos
   function Items(world, L) {
     this.w = world; this.L = L;
-    this.seeds = L.seeds.map((s, i) => ({ x: s.x, y: s.y, secret: !!s.secret, taken: false, t: i * 1.3, pop: 0 }));
+    // las semillas «en el árbol» no se ven hasta que el árbol se sacude y caen al suelo
+    this.seeds = L.seeds.map((s, i) => ({ x: s.x, y: s.y, secret: !!s.secret, taken: false, t: i * 1.3, pop: 0,
+      inTree: s.inTree || null, hidden: !!s.inTree, vy: 0, falling: false }));
     this.lanterns = L.lanterns.map((l) => ({ x: l.x, lit: false, glow: 0, t: Math.random() * 5 }));
     this.chest = { x: L.chest.x, y: world.groundY(L.chest.x), open: false, t: 0, opening: -1 };
+    this.flowers = (L.flowers || []).map((f, i) => ({ x: f.x, y: world.groundY(f.x), picked: false, t: i * 2.1, pickT: -1 }));
     this.found = 0;
+    this.picked = 0;
     this.page = false;
   }
 
   Items.prototype.update = function (dt, girl, onCheckpoint) {
     for (const sd of this.seeds) {
       sd.t += dt;
+      if (sd.hidden) continue;
       if (sd.taken) { sd.pop = Math.min(1, sd.pop + dt * 3); continue; }
+      if (sd.falling) {
+        // cae girando entre las hojas y rebota una vez en el suelo
+        sd.vy += 1400 * dt;
+        sd.y += sd.vy * dt;
+        const gy = this.w.groundY(sd.x) - 26;
+        if (sd.y >= gy) { sd.y = gy; if (sd.vy > 220) { sd.vy = -sd.vy * 0.35; JHS.Ambient.burst('dust', sd.x, gy + 24, 3); } else { sd.vy = 0; sd.falling = false; } }
+      }
       const cx = girl.x, cy = girl.y - 72;
       if (Math.abs(sd.x - cx) < 34 && Math.abs(sd.y - cy) < 78) {
         sd.taken = true;
         this.found++;
         JHS.Ambient.burst('gold', sd.x, sd.y, 16);
-        JHS.UI.bumpHUD();
+        JHS.UI.flyToHud('seed', sd.x, sd.y);
+        if (JHS.Sound) JHS.Sound.play('seed');
+        if (this.onSeed) this.onSeed(sd);
       }
+    }
+    for (const f of this.flowers) {
+      f.t += dt;
+      if (f.pickT >= 0) f.pickT += dt;
     }
     for (const l of this.lanterns) {
       l.t += dt;
       if (!l.lit && girl.x > l.x - 24) {
         l.lit = true;
-        JHS.Ambient.burst('gold', l.x + 28, this.w.groundY(l.x) - 132, 14);
+        l.flare = 1;
+        JHS.Ambient.burst('gold', l.x + 28, this.w.groundY(l.x) - 112, 18);
+        if (JHS.Sound) JHS.Sound.play('lantern');
         onCheckpoint({ x: l.x + 46, y: this.w.groundY(l.x + 46) });
       }
+      l.flare = Math.max(0, (l.flare || 0) - dt * 1.4);
       l.glow = U.damp(l.glow, l.lit ? 1 : 0, 2.5, dt);
     }
     const c = this.chest;
     if (c.opening >= 0) {
       c.opening += dt;
-      if (c.opening > 0.45 && !c.open) { c.open = true; JHS.Ambient.burst('gold', c.x, c.y - 40, 20); }
-      if (c.opening > 1.25) { c.opening = -1; this.page = true; JHS.UI.showPage(this.L.page); JHS.UI.bumpHUD(); }
+      if (c.opening > 0.45 && !c.open) { c.open = true; JHS.Ambient.burst('gold', c.x, c.y - 40, 20); if (JHS.Sound) JHS.Sound.play('chest'); }
+      if (c.opening > 1.25) { c.opening = -1; this.page = true; JHS.UI.showPage(this.L.page); JHS.UI.bumpHUD(); if (JHS.Sound) JHS.Sound.play('page'); }
     }
   };
 
   Items.prototype.secretNear = function (x) {
-    for (const sd of this.seeds) if (sd.secret && !sd.taken && Math.abs(sd.x - x) < 300) return sd;
+    for (const sd of this.seeds) if (sd.secret && !sd.taken && !sd.hidden && Math.abs(sd.x - x) < 300) return sd;
     return null;
   };
+
+  // Al sacudir un árbol cae la semilla que esconde (si la tiene).
+  Items.prototype.shakeTree = function (treeX) {
+    for (const sd of this.seeds) {
+      if (sd.inTree === treeX && sd.hidden) { sd.hidden = false; sd.falling = true; sd.vy = -120; return true; }
+    }
+    return false;
+  };
+
+  Items.prototype.flowerNear = function (x) {
+    for (const f of this.flowers) if (!f.picked && Math.abs(f.x - x) < 44) return f;
+    return null;
+  };
+
+  Items.prototype.total = function () { return this.seeds.length; };
 
   JHS.Entities = { SheepCtl, ShepherdCtl, Items };
 })(window.JHS = window.JHS || {});

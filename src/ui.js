@@ -11,7 +11,7 @@
 
   const UI = {
     F,
-    hud: { a: 1, bump: 0, idle: 0 },
+    hud: { a: 1, bump: 0, idle: 0, flowerX: 250 },
     dlg: null,
     pageView: null,
     prompt: null,
@@ -23,6 +23,58 @@
   UI.init = function () {
     UI.seedIcon = JHS.Objects.seed();
     UI.pageIcon = JHS.Objects.page();
+    UI.flowerIcon = JHS.Props.bouquet(932);
+    UI.fly = [];
+  };
+
+  // Un objeto recogido vuela desde el mundo hasta su casilla del marcador.
+  UI.flyToHud = function (kind, wx, wy) {
+    UI.fly.push({ kind, wx, wy, t: 0, sx: null, sy: null });
+    UI.hud.idle = 0;
+  };
+
+  UI.drawFly = function (ctx, dt, toScreen) {
+    for (let i = UI.fly.length - 1; i >= 0; i--) {
+      const f = UI.fly[i];
+      if (f.sx == null) { const p = toScreen(f.wx, f.wy); f.sx = p[0]; f.sy = p[1]; }
+      f.t += dt;
+      const k = U.clamp(f.t / 0.75, 0, 1), e = U.easeInOut(k);
+      const tx = f.kind === 'flower' ? UI.hud.flowerX : 94, ty = 80;
+      const x = U.lerp(f.sx, tx, e), y = U.lerp(f.sy, ty, e) - Math.sin(Math.PI * k) * 120;
+      const icon = f.kind === 'flower' ? UI.flowerIcon : UI.seedIcon;
+      const s = (f.kind === 'flower' ? 1.6 : 1.5) * (1 - 0.3 * e);
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.6 * (1 - k * 0.5);
+      Paint.softBlob(ctx, x, y, 34 * s, '#ffe3a0', 0.8);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.sin(f.t * 9) * 0.25);
+      ctx.scale(s, s);
+      ctx.drawImage(icon.c, -icon.ox, -icon.oy, icon.w, icon.h);
+      ctx.restore();
+      if (k >= 1) { UI.fly.splice(i, 1); UI.bumpHUD(); }
+    }
+  };
+
+  // Bocadillo de papel en el mundo (balidos, la llamada de la niña).
+  UI.bubble = function (ctx, x, y, str, k, seed = 404, rot = -0.05) {
+    if (k <= 0.01) return;
+    ctx.save();
+    ctx.globalAlpha *= k;
+    ctx.translate(x, y - (1 - k) * 8);
+    ctx.rotate(rot);
+    ctx.font = `italic 700 20px ${F.text}`;
+    const w = ctx.measureText(str).width + 28;
+    Paint.paperScrap(ctx, -w / 2, -18, w, 34, { seed, rough: 1.6 });
+    ctx.fillStyle = Paint.paperPattern(ctx);
+    ctx.beginPath(); ctx.moveTo(-6, 15); ctx.lineTo(2, 27); ctx.lineTo(7, 15); ctx.fill();
+    ctx.fillStyle = P.ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(str, 0, 6);
+    ctx.restore();
   };
 
   function text(ctx, s, x, y, size, o = {}) {
@@ -66,9 +118,12 @@
     const target = h.idle < 4 ? 1 : 0.55;
     h.a = U.damp(h.a, target, 3, dt);
     const x = 54, y = 46;
+    const showF = st.flowersTotal > 0 && (st.flowers > 0 || h.showFlowers);
+    const w = 160 + (showF ? 128 : 0) + (st.page ? 58 : 0);
+    h.flowerX = x + 196;
     ctx.save();
     ctx.globalAlpha = h.a;
-    Paint.paperScrap(ctx, x, y, st.page ? 218 : 160, 66, { seed: 31, alpha: 0.95 });
+    Paint.paperScrap(ctx, x, y, w, 66, { seed: 31, alpha: 0.95 });
     const s = 1 + h.bump * 0.25;
     ctx.save();
     ctx.translate(x + 40, y + 34);
@@ -77,8 +132,16 @@
     ctx.restore();
     ctx.globalAlpha = h.a;
     text(ctx, `${st.found} / ${st.total}`, x + 66, y + 44, 30, { font: F.title, color: P.ink });
+    let px = x + 182;
+    if (showF) {
+      ctx.save(); ctx.translate(x + 186, y + 40); ctx.scale(1.25, 1.25);
+      ctx.drawImage(UI.flowerIcon.c, -UI.flowerIcon.ox, -UI.flowerIcon.oy, UI.flowerIcon.w, UI.flowerIcon.h);
+      ctx.restore();
+      text(ctx, `${st.flowers} / ${st.flowersTotal}`, x + 214, y + 44, 30, { font: F.title, color: P.ink });
+      px += 128;
+    }
     if (st.page) {
-      ctx.save(); ctx.translate(x + 182, y + 33); ctx.rotate(-0.08);
+      ctx.save(); ctx.translate(px, y + 33); ctx.rotate(-0.08);
       ctx.drawImage(UI.pageIcon.c, -UI.pageIcon.ox, -UI.pageIcon.oy, UI.pageIcon.w, UI.pageIcon.h);
       ctx.restore();
     }
@@ -93,8 +156,8 @@
     const a = U.clamp(hn.t / 0.6, 0, 1) * (1 - U.clamp((hn.t - 9) / 1.2, 0, 1));
     if (a <= 0) { if (hn.t > 10.2) hn.show = false; return; }
     const msg = touchMode
-      ? '◀ ▶ caminar · doble toque: correr · ⤒ saltar · ✋ interactuar'
-      : '← → caminar   ·   Mayús correr   ·   Espacio saltar   ·   ↑ trepar   ·   E interactuar';
+      ? '◀ ▶ caminar · doble toque: correr · ⤒ saltar · ✋ interactuar · ♪ llamar a la oveja'
+      : '← → caminar  ·  Mayús correr  ·  Espacio saltar  ·  ↑ trepar  ·  ↓ agacharse  ·  E interactuar  ·  C llamar a la oveja  ·  M sonido';
     ctx.save();
     ctx.globalAlpha = a;
     ctx.font = `400 25px ${F.text}`;
@@ -285,39 +348,61 @@
     text(ctx, msg, 960, 1040, 22, { align: 'center', color: P.paper, alpha: a * 0.9 });
   };
 
-  UI.drawPause = function (ctx, sel) {
+  UI.drawPause = function (ctx, sel, soundOn) {
     ctx.save();
     ctx.globalAlpha = 0.35; ctx.fillStyle = '#2b1d12'; ctx.fillRect(0, 0, 1920, 1080);
     ctx.globalAlpha = 1;
-    Paint.paperScrap(ctx, 660, 250, 600, 520, { seed: 91, rough: 4 });
-    text(ctx, 'Pausa', 960, 350, 60, { font: F.title, align: 'center' });
-    menuItems(ctx, ['Continuar', 'Volver al último farol', 'Hoja de personajes', 'Salir al título'], sel, 960, 450, 34, 70);
+    Paint.paperScrap(ctx, 650, 220, 620, 560, { seed: 91, rough: 4 });
+    text(ctx, 'Pausa', 960, 320, 60, { font: F.title, align: 'center' });
+    menuItems(ctx, ['Continuar', 'Volver al último farol', soundOn ? 'Sonido: activado' : 'Sonido: en silencio', 'Hoja de personajes', 'Salir al título'], sel, 960, 420, 34, 70);
     ctx.restore();
   };
 
-  UI.drawEnd = function (ctx, t, st) {
-    const a = U.clamp(t / 1.2, 0, 1);
+  // Aviso breve en una tira de papel (arriba a la derecha).
+  UI.toast = function (msg) { UI.toastMsg = { msg, t: 0 }; };
+  UI.drawToast = function (ctx, dt) {
+    const m = UI.toastMsg;
+    if (!m) return;
+    m.t += dt;
+    const a = U.clamp(m.t / 0.2, 0, 1) * (1 - U.clamp((m.t - 1.6) / 0.4, 0, 1));
+    if (m.t > 2) { UI.toastMsg = null; return; }
     ctx.save();
     ctx.globalAlpha = a;
-    Paint.paperScrap(ctx, 470, 150, 980, 700, { seed: 101, rough: 5, alpha: 0.97 });
-    text(ctx, 'Has llegado al mirador', 960, 280, 64, { font: F.title, align: 'center' });
-    text(ctx, 'Fin de la primera prueba', 960, 340, 30, { italic: true, align: 'center', color: P.inkWarm });
-    ctx.strokeStyle = P.inkWarm; ctx.globalAlpha = a * 0.6; ctx.lineWidth = 1.4;
-    ctx.beginPath(); ctx.moveTo(780, 375); ctx.quadraticCurveTo(960, 385, 1140, 375); ctx.stroke();
+    ctx.font = `italic 400 24px ${F.text}`;
+    const w = ctx.measureText(m.msg).width + 56;
+    Paint.paperScrap(ctx, 1780 - w, 50, w, 50, { seed: 47, alpha: 0.95 });
+    text(ctx, m.msg, 1780 - w / 2, 83, 24, { align: 'center', italic: true, color: P.inkSoft, alpha: a });
+    ctx.restore();
+  };
+
+  // Tarjeta final a la derecha: a la izquierda siguen a la vista la niña, la oveja y el Pastor.
+  UI.END_X = 1400;
+  UI.drawEnd = function (ctx, t, st) {
+    const a = U.clamp(t / 1.2, 0, 1), cx = UI.END_X;
+    ctx.save();
     ctx.globalAlpha = a;
-    ctx.save(); ctx.translate(820, 465); ctx.scale(1.8, 1.8); ctx.drawImage(UI.seedIcon.c, -UI.seedIcon.ox, -UI.seedIcon.oy, UI.seedIcon.w, UI.seedIcon.h); ctx.restore();
-    text(ctx, `Semillas de luz: ${st.found} de ${st.total}`, 860, 478, 34, { color: P.ink });
-    ctx.save(); ctx.translate(820, 545); ctx.scale(1.4, 1.4); ctx.drawImage(UI.pageIcon.c, -UI.pageIcon.ox, -UI.pageIcon.oy, UI.pageIcon.w, UI.pageIcon.h); ctx.restore();
-    text(ctx, st.page ? 'Página del diario: encontrada' : 'Página del diario: sigue en algún cofre', 860, 558, 34, { color: P.ink });
-    text(ctx, st.time, 860, 628, 26, { italic: true, color: P.inkSoft });
-    menuItems(ctx, ['Volver a empezar', 'Hoja de personajes'], st.sel, 960, 730, 34, 60);
+    Paint.paperScrap(ctx, cx - 450, 130, 900, 760, { seed: 101, rough: 5, alpha: 0.97 });
+    text(ctx, 'Has llegado al mirador', cx, 280, 62, { font: F.title, align: 'center' });
+    text(ctx, 'Fin de la primera prueba', cx, 340, 30, { italic: true, align: 'center', color: P.inkWarm });
+    ctx.strokeStyle = P.inkWarm; ctx.globalAlpha = a * 0.6; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(cx - 180, 375); ctx.quadraticCurveTo(cx, 385, cx + 180, 375); ctx.stroke();
+    ctx.globalAlpha = a;
+    const ix = cx - 300, tx = cx - 260;
+    ctx.save(); ctx.translate(ix, 465); ctx.scale(1.8, 1.8); ctx.drawImage(UI.seedIcon.c, -UI.seedIcon.ox, -UI.seedIcon.oy, UI.seedIcon.w, UI.seedIcon.h); ctx.restore();
+    text(ctx, `Semillas de luz: ${st.found} de ${st.total}`, tx, 478, 34, { color: P.ink });
+    ctx.save(); ctx.translate(ix, 545); ctx.scale(1.4, 1.4); ctx.drawImage(UI.pageIcon.c, -UI.pageIcon.ox, -UI.pageIcon.oy, UI.pageIcon.w, UI.pageIcon.h); ctx.restore();
+    text(ctx, st.page ? 'Página del diario: encontrada' : 'Página del diario: sigue en algún cofre', tx, 558, 34, { color: P.ink });
+    ctx.save(); ctx.translate(ix + 2, 628); ctx.scale(1.6, 1.6); ctx.drawImage(UI.flowerIcon.c, -UI.flowerIcon.ox, -UI.flowerIcon.oy, UI.flowerIcon.w, UI.flowerIcon.h); ctx.restore();
+    text(ctx, st.flowers > 0 ? `Campanillas: ${st.flowers} de ${st.flowersTotal}, regaladas al Pastor` : `Campanillas: 0 de ${st.flowersTotal}`, tx, 638, 34, { color: P.ink });
+    text(ctx, st.time, tx, 700, 26, { italic: true, color: P.inkSoft });
+    menuItems(ctx, ['Volver a empezar', 'Hoja de personajes'], st.sel, cx, 780, 34, 60);
     ctx.restore();
   };
 
   // Controles táctiles: círculos de tinta sobre papel.
   UI.drawTouch = function (ctx, Input) {
     const B = Input.BTN;
-    const glyph = { left: '◀', right: '▶', jump: '⤒', act: '✋', up: '↑', pause: 'Ⅱ' };
+    const glyph = { left: '◀', right: '▶', jump: '⤒', act: '✋', up: '↑', down: '↓', call: '♪', pause: 'Ⅱ' };
     for (const k in B) {
       const b = B[k];
       const on = Input.touch.btn[k];

@@ -5,6 +5,8 @@
      - se puede llegar al mirador y a la pantalla final sin caerse;
      - el cofre da la página del diario y la oveja llega con la niña;
      - las tres páginas de la hoja de personajes se dibujan.
+     - recoge campanillas, sacude el árbol (cae una semilla escondida), llama a la oveja y, al
+       final, la niña regala el ramillete al Pastor.
    Uso:  npm test   (o  node tools/recorrido.js [--capturas carpeta]) */
 'use strict';
 const path = require('path');
@@ -16,12 +18,14 @@ const shotsDir = shotsArg > 0 ? path.resolve(process.argv[shotsArg + 1]) : null;
 
 function bot() {
   const G = JHS.G;
+  // paso fijo: la simulación no depende de lo rápido que pinte el navegador sin ventana
+  G.fixedDt = 1 / 60;
   G.timeScale = 6;
   G.botLog = [];
   G.fails = 0;
   let jumpHold = 0, lastX = 0, stuckT = 0;
   const log = (m) => G.botLog.push(`[${G.playTime.toFixed(1)} s · x=${G.body.x.toFixed(0)}] ${m}`);
-  const jumpAt = [1625, 1985, 2720, 3335, 3515, 7040];
+  const jumpAt = [1625, 1985, 2720, 3335, 3515, 5062, 7040];
   const done = new Set();
   const seen = new Set();
   const once = (k, m) => { if (!seen.has(k)) { seen.add(k); log(m); } };
@@ -46,12 +50,25 @@ function bot() {
         if (b.grounded && Math.abs(b.y - p.y) < 3 && b.x > p.x + p.w - 40) { inp.jump = true; jumpHold = 0.4; }
       }
     }
+    // campanillas: recogerlas al pasar (sin diálogo abierto)
+    const f = G.items.flowerNear(b.x);
+    if (f && b.grounded && !G.girl.action && !JHS.UI.dlg && !G.autoWalk) { inp.act = true; once('flower' + f.x, 'recoge una campanilla'); }
+    // sacudir el árbol del escalón: cae una semilla escondida
+    const tr = 4980;
+    if (!seen.has('shake') && Math.abs(b.x - tr) < 45 && b.grounded && Math.abs(b.y - G.world.groundY(tr)) < 20 && !G.girl.action) {
+      // si el Pastor aún habla, se espera junto al árbol pasando sus frases
+      inp.x = 0;
+      if (JHS.UI.dlg) { if (JHS.UI.dlg.t > 0.5) inp.act = true; }
+      else { inp.act = true; once('shake', 'sacude el árbol'); }
+    }
+    // llamar a la oveja una vez tras el primer farol
+    if (b.x > 2400 && !seen.has('call') && b.grounded && !G.girl.action) { inp.call = true; once('call', 'llama a la oveja'); }
     // cofre
     const c = G.items.chest;
     if (!c.open && c.opening < 0 && Math.abs(b.x - c.x) < 40 && b.grounded) { inp.act = true; once('chest', 'abre el cofre'); }
     if (c.opening >= 0 && c.opening < 1.3) inp.x = 0;
     // obstáculo sin salto programado: saltar
-    const busy = !!JHS.UI.pageView || G.girl.action === 'interact';
+    const busy = !!JHS.UI.pageView || !!G.girl.action || !!G.autoWalk;
     if (Math.abs(b.x - lastX) < 0.5 && !b.climbing && !G.cine && !busy) {
       stuckT += dt;
       if (stuckT > 0.6) { inp.jump = true; jumpHold = 0.4; stuckT = 0; }
@@ -83,7 +100,9 @@ function bot() {
   const tEnd = Date.now() + 240000;
   while (Date.now() < tEnd) {
     await page.waitForTimeout(1500);
-    st = await page.evaluate(() => ({ state: JHS.G.state, x: Math.round(JHS.G.body.x), seeds: JHS.G.items.found, total: JHS.G.items.seeds.length, page: JHS.G.items.page, fails: JHS.G.fails, sheepX: Math.round(JHS.G.sheep.x), time: JHS.G.playTime }));
+    st = await page.evaluate(() => ({ state: JHS.G.state, x: Math.round(JHS.G.body.x), seeds: JHS.G.items.found, total: JHS.G.items.seeds.length, page: JHS.G.items.page, fails: JHS.G.fails, sheepX: Math.round(JHS.G.sheep.x), time: JHS.G.playTime,
+      flowers: JHS.G.items.picked, flowersTotal: JHS.G.items.flowers.length, gift: !!JHS.G.shep.flowers,
+      missed: JHS.G.items.seeds.filter((s) => !s.taken).map((s) => `${s.x},${Math.round(s.y)}${s.secret ? ' (secreta)' : ''}`) }));
     if (st.state === 'end') break;
   }
   console.log((await page.evaluate(() => JHS.G.botLog)).join('\n'));
@@ -103,10 +122,13 @@ function bot() {
     ['sin caídas', st && st.fails === 0],
     ['página del diario encontrada', st && st.page],
     ['la oveja llega al mirador', st && st.sheepX > 8000],
-    ['semillas recogidas (al menos 5)', st && st.seeds >= 5],
+    ['semillas recogidas (al menos 6, una sacudiendo el árbol)', st && st.seeds >= 6],
+    ['campanillas recogidas (al menos 3)', st && st.flowers >= 3],
+    ['las campanillas se regalan al Pastor en el mirador', st && st.gift],
     ['sin errores en la página', errors.length === 0],
   ];
-  console.log(`\nSemillas: ${st && st.seeds}/${st && st.total} · tiempo de juego: ${st && st.time.toFixed(1)} s`);
+  console.log(`\nSemillas: ${st && st.seeds}/${st && st.total} · campanillas: ${st && st.flowers}/${st && st.flowersTotal} · tiempo de juego: ${st && st.time.toFixed(1)} s`);
+  if (st && st.missed.length) console.log(`Semillas sin recoger: ${st.missed.join(' · ')}`);
   for (const [name, ok] of checks) console.log(`${ok ? '✔' : '✘'} ${name}`);
   if (errors.length) console.log('Errores:\n' + errors.slice(0, 10).join('\n'));
   process.exit(checks.every(([, ok]) => ok) ? 0 : 1);

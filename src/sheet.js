@@ -5,7 +5,7 @@
   'use strict';
   const U = JHS.U, P = JHS.Palette, Paint = JHS.Paint, UI = JHS.UI;
 
-  const Sheet = { page: 0, t: 0, cells: null, ref: null, pages: 3 };
+  const Sheet = { page: 0, t: 0, cells: null, extra: null, ref: null, pages: 4 };
 
   function girlCell(label, drive) {
     const g = JHS.Girl.create(0, 0);
@@ -51,6 +51,41 @@
         shepCell('Bendecir', 'bless'), shepCell('Hablar', 'speak'), shepCell('Mirar el horizonte', 'look'),
       ],
     ];
+    // segunda pasada: transiciones, esperas e interacciones nuevas
+    const loopAction = (a, dur, every, carry = 0) => (g, t) => {
+      g.mode = 'ground'; g.speed = 0; g.carry = carry;
+      if (!g.action || (every && g.actionT > every)) { g.action = a; g.actionT = 0; g.actionDur = dur; }
+    };
+    const calm = (g) => { g.mode = 'ground'; g.speed = 0; g.vx = 0; };
+    const bench = JHS.Objects.bench();
+    Sheet.extra = [
+      [
+        girlCell('Girar', (g, t) => { calm(g); g.facing = Math.floor(t / 1.3) % 2 ? -1 : 1; }),
+        girlCell('Frenar', (g) => { g.mode = 'ground'; g.speed = 4; g.vx = 4; g.brake = true; }),
+        girlCell('Equilibrio en el borde', (g) => { calm(g); g.teeter = true; }),
+        girlCell('Agacharse', (g) => { calm(g); g.crouch = true; }),
+        girlCell('Mirar arriba', (g) => { calm(g); g.lookUp = true; }),
+        girlCell('Estirarse (espera)', (g) => { calm(g); g.idleT = 7.6; }),
+        girlCell('Sentarse (espera larga)', (g) => { calm(g); g.idleT = 17; }),
+      ],
+      [
+        Object.assign(girlCell('Sentarse en el banco', (g) => { calm(g); g.bench = true; }), { under: bench }),
+        girlCell('Llamar a la oveja', loopAction('call', 0, 1.6)),
+        girlCell('Recoger', loopAction('pick', 0, 1.3, 2)),
+        girlCell('Ofrecer las flores', loopAction('offer', 0, 0, 4)),
+        girlCell('Sacudir el árbol', loopAction('shake', 0, 1.4)),
+        girlCell('Leer el letrero', loopAction('read', 0, 0)),
+        girlCell('Encaramarse', loopAction('mantle', 0, 1.1)),
+      ],
+      [
+        sheepCell('Balar', 'idle', (o, t) => { JHS.Sheep.setAnim(o, 'idle'); if (o.bleatT <= 0 && (t % 2.4) < 0.1) JHS.Sheep.bleat(o, '¡Beee!'); }),
+        sheepCell('Mover la cola', 'happy', (o, t) => { if (o.anim !== 'happy' || o.animT > 1.8) { o.anim = ''; JHS.Sheep.setAnim(o, 'happy'); o.wag = 2; } }),
+        sheepCell('Seguir con la mirada', 'idle', (o, t) => { JHS.Sheep.setAnim(o, 'idle'); o.lookAt = { x: o.x + 80 + Math.sin(t * 1.3) * 90, y: o.y - 150 + Math.cos(t * 0.9) * 60 }; }),
+        shepCell('Saludar', 'wave', (o) => { if (o.anim !== 'wave' || o.animT > 2) { o.anim = ''; JHS.Shepherd.setAnim(o, 'wave'); } }),
+        shepCell('Inclinarse', 'kneel', (o) => { JHS.Shepherd.setAnim(o, 'kneel'); }),
+        shepCell('Recibir las flores', 'speak', (o) => { JHS.Shepherd.setAnim(o, 'speak'); o.flowers = true; o.talking = true; }),
+      ],
+    ];
     Sheet.ref = new Image();
     Sheet.ref.src = JHS.REF_IMAGE_SRC || 'docs/referencias/lamina_conceptual.jpg';
   }
@@ -60,9 +95,10 @@
   Sheet.update = function (dt) {
     Sheet.t += dt;
     if (!Sheet.cells) return;
-    for (const row of Sheet.cells) for (const c of row) {
+    for (const row of Sheet.cells.concat(Sheet.extra)) for (const c of row) {
       c.drive(c.o, Sheet.t, dt);
       c.mod.update(c.o, dt);
+      if (c.o.events) c.o.events.length = 0;
     }
   };
 
@@ -100,6 +136,32 @@
         c.mod.draw(ctx, c.o);
         ctx.restore();
         UI.text(ctx, c.label, x, R.y + 34, 21, { align: 'center', color: P.inkSoft });
+      });
+      ctx.strokeStyle = U.rgba(P.inkSoft, 0.25); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(180, R.y + 52); ctx.lineTo(1880, R.y + 52); ctx.stroke();
+    });
+  }
+
+  function drawMoreAnimations(ctx) {
+    header(ctx, 'Animaciones nuevas — transiciones e interacciones', 'Segunda pasada: más vida entre los movimientos y más cosas que hacer');
+    const rows = [{ y: 380, s: 1.25, lab: 'Niña' }, { y: 690, s: 1.25, lab: '' }, { y: 1000, s: 1, lab: 'Oveja · Pastor' }];
+    Sheet.extra.forEach((row, r) => {
+      const R = rows[r];
+      if (R.lab) rowLabel(ctx, R.lab === 'Oveja · Pastor' ? 'Otros' : R.lab, R.y - 150);
+      const n = row.length, x0 = 280, x1 = 1760;
+      row.forEach((c, i) => {
+        const x = U.lerp(x0, x1, i / (n - 1));
+        const s = c.mod === JHS.Shepherd ? 0.82 : R.s;
+        ctx.save();
+        ctx.translate(x, R.y);
+        ctx.scale(s, s);
+        ctx.fillStyle = 'rgba(110,84,60,0.18)';
+        ctx.beginPath(); ctx.ellipse(0, 1, 34, 5, 0, 0, U.TAU); ctx.fill();
+        if (c.under) ctx.drawImage(c.under.c, -c.under.ox, -c.under.oy + 4, c.under.w, c.under.h);
+        c.mod.draw(ctx, c.o);
+        if (c.mod === JHS.Sheep) JHS.Sheep.drawBubble(ctx, c.o);
+        ctx.restore();
+        UI.text(ctx, c.label, x, R.y + 34, 20, { align: 'center', color: P.inkSoft });
       });
       ctx.strokeStyle = U.rgba(P.inkSoft, 0.25); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(180, R.y + 52); ctx.lineTo(1880, R.y + 52); ctx.stroke();
@@ -205,7 +267,8 @@
     ctx.fillRect(0, 0, 1920, 1080);
     if (!Sheet.cells) return;
     if (Sheet.page === 0) drawAnimations(ctx);
-    else if (Sheet.page === 1) drawExpressions(ctx);
+    else if (Sheet.page === 1) drawMoreAnimations(ctx);
+    else if (Sheet.page === 2) drawExpressions(ctx);
     else drawReference(ctx);
   };
 

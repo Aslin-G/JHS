@@ -355,6 +355,7 @@
   }
 
   function buildParts() {
+    S.bouquet = JHS.Props.bouquet(931);
     const mk = (w, h, ox, oy, fn) => Paint.makeSprite({ w, h, ox, oy, res: RES, post: POST }, fn);
     S.torso = mk(64, 72, 34, 54, paintTorso);
     S.torsoBack = mk(64, 72, 32, 54, paintTorsoBack);
@@ -407,9 +408,19 @@
       action: null, actionT: 0,
       climbPh: 0, pushPh: 0,
       hair: makeHair(), hairSway: 0, hairSwayV: 0, wind: 0,
+      // giro (se encoge en x a mitad de la vuelta), frenada, equilibrio en el borde, agacharse,
+      // mirar arriba, secuencia de espera (estirarse, sentarse) y saludo
+      drawFacing: 1, turnT: 0, turnTo: 1,
+      brake: false, brakeK: 0, teeter: false, teeterK: 0, crouch: false, crouchK: 0, lookUp: false, lookUpK: 0,
+      stretchK: 0, sitK: 0, bench: false, benchK: 0, carry: 0,
+      // movimiento secundario: mochila con muelle y vuelo del bajo del suéter
+      packY: 0, packVY: 0, packX: 0, packVX: 0, packRef: null, hemSkew: 0, hemV: 0,
+      lookAt: null, headLook: 0, offX: 0, offY: 0, events: [],
       pose: null,
     };
   }
+
+  const TURN = 0.16;
 
   // ------------------------------------------------------------------ poses
   const WALK = { beta: 0.58, L: 50, lift: 7.5, lean: 0.05, arm: 0.34, elbow: 0.28 };
@@ -443,9 +454,15 @@
     for (const k in WALK) pr[k] = U.lerp(WALK[k], RUN[k], b);
     if (extra.push) { pr.beta = 0.72; pr.L = 30; pr.lift = 4; pr.lean = 0; pr.arm = 0; pr.elbow = 0; }
     const rate = (pr.beta * Math.max(speed, 6)) / pr.L;
+    const p0 = g.phase;
     g.phase = (g.phase + rate * dt) % 1;
     const fe = [Rig.footCycle(g.phase, pr.L, pr.beta, pr.lift), Rig.footCycle(g.phase + 0.5, pr.L, pr.beta, pr.lift)];
     const shiftX = extra.push ? -9 : 2 + b * 4;
+    // apoyo del talón: evento de paso (polvo, huellas, sonido)
+    for (let i = 0; i < 2; i++) {
+      const a = (p0 + i * 0.5) % 1, c = (g.phase + i * 0.5) % 1;
+      if (a > 0.75 && c < 0.25) g.events.push({ type: 'step', foot: i, x: g.x + g.facing * (pr.L / 2 + shiftX), run: b, push: !!extra.push });
+    }
     for (let i = 0; i < 2; i++) {
       ps.feet[i] = { x: fe[i].x + shiftX, y: M.ankleY + fe[i].y, rot: fe[i].rot, stance: fe[i].stance };
     }
@@ -518,9 +535,121 @@
     void c;
   }
 
+  // Mezcla lineal de los campos numéricos de una pose hacia otra.
+  function blendPose(ps, q, k) {
+    if (k <= 0.001) return;
+    const L = U.lerp;
+    for (const f of ['hipX', 'hipY', 'torso', 'head', 'breath']) if (q[f] != null) ps[f] = L(ps[f], q[f], k);
+    if (q.feet) for (let i = 0; i < 2; i++) {
+      const a = ps.feet[i], b = q.feet[i];
+      ps.feet[i] = { x: L(a.x, b.x, k), y: L(a.y, b.y, k), rot: L(a.rot, b.rot, k), stance: k > 0.5 ? b.stance : a.stance };
+    }
+    if (q.arms) for (let i = 0; i < 2; i++) {
+      if (!q.arms[i]) continue;
+      ps.arms[i] = { fwd: L(ps.arms[i].fwd, q.arms[i].fwd, k), el: L(ps.arms[i].el, q.arms[i].el, k) };
+    }
+  }
+
+  // Frenada al cambiar de sentido o soltar la carrera: se echa hacia atrás y apoya el talón.
+  function brakePose(g, ps) {
+    blendPose(ps, {
+      hipY: M.hipY + 6, torso: -0.17, head: 0.08,
+      feet: [{ x: 17, y: M.ankleY, rot: -0.35, stance: true }, { x: -5, y: M.ankleY, rot: 0, stance: true }],
+      arms: [{ fwd: 1.05, el: 0.35 }, { fwd: 0.55, el: 0.45 }],
+    }, g.brakeK);
+  }
+
+  // Al borde de un precipicio: brazos en molinete y el cuerpo que oscila (§9: miedo sutil).
+  function teeterPose(g, ps) {
+    const t = g.t, w = Math.sin(t * 9);
+    blendPose(ps, {
+      hipY: M.hipY + 2, torso: 0.1 + w * 0.09, head: 0.2,
+      feet: [{ x: 7, y: M.ankleY - 2, rot: 0.2, stance: true }, { x: -6, y: M.ankleY, rot: 0, stance: true }],
+      // molinete: un brazo gira por delante y el otro por detrás, a destiempo
+      // (el cercano no sube por encima del hombro: taparía la cara)
+      arms: [{ fwd: 1.2 + Math.sin(t * 11) * 0.72, el: 0.2 }, { fwd: -0.45 + Math.sin(t * 11 + 2.6) * 0.75, el: 0.25 }],
+    }, g.teeterK);
+  }
+
+  function crouchPose(g, ps) {
+    blendPose(ps, {
+      hipY: M.hipY + 30, torso: 0.34, head: -0.22,
+      feet: [{ x: 13, y: M.ankleY, rot: 0, stance: true }, { x: -9, y: M.ankleY, rot: 0.15, stance: true }],
+      arms: [{ fwd: 0.95, el: 0.55 }, { fwd: 0.75, el: 0.6 }],
+    }, g.crouchK);
+  }
+
+  function lookUpPose(g, ps) {
+    blendPose(ps, { torso: -0.07, head: -0.34, arms: [{ fwd: -0.15, el: 0.4 }, { fwd: -0.25, el: 0.35 }] }, g.lookUpK);
+  }
+
+  // Espera larga: se estira (puntillas, brazos arriba, bostezo) y más tarde se sienta a mirar.
+  function stretchPose(g, ps) {
+    blendPose(ps, {
+      hipY: M.hipY - 3.5, torso: -0.09, head: -0.16,
+      feet: [{ x: 5, y: M.ankleY - 3, rot: 0.45, stance: true }, { x: -4, y: M.ankleY - 3, rot: 0.45, stance: true }],
+      // los brazos son cortos para su cabeza: se estira echándolos arriba y atrás, detrás de la cara
+      arms: [{ fwd: 3.95, el: 0.22 }, { fwd: 3.7, el: 0.18 }],
+    }, g.stretchK);
+  }
+
+  function sitPose(g, ps) {
+    const br = Math.sin(g.t * U.TAU * 0.28);
+    blendPose(ps, {
+      hipX: -3, hipY: -15 + br * 0.4, torso: 0.1 + br * 0.01, head: -0.06 + g.headLook,
+      feet: [{ x: 21, y: M.ankleY + 1, rot: 0.1, stance: true }, { x: 16, y: M.ankleY + 1, rot: 0.1, stance: true }],
+      arms: [{ fwd: 1.05, el: 1.05 }, { fwd: 0.95, el: 1.15 }],
+    }, g.sitK);
+  }
+
+  // Sentada en un banco: muslos horizontales, pies en el suelo, manos en el regazo.
+  function benchPose(g, ps) {
+    const br = Math.sin(g.t * U.TAU * 0.26);
+    const swing = Math.sin(g.t * 1.6) * 3;
+    blendPose(ps, {
+      hipX: -2, hipY: -52 + br * 0.4, torso: 0.04 + br * 0.008, head: -0.05 + g.headLook,
+      feet: [{ x: 23 + swing, y: M.ankleY - 2, rot: -0.1, stance: true }, { x: 19 - swing, y: M.ankleY - 2, rot: -0.1, stance: true }],
+      arms: [{ fwd: 0.55, el: 0.95 }, { fwd: 0.5, el: 1.0 }],
+    }, g.benchK);
+  }
+
   function actionPose(g, ps) {
     const a = g.action;
     const t = g.actionT;
+    if (a === 'offer') {
+      // ofrece el ramillete con el brazo extendido
+      const k = U.smoothstep(0, 0.4, t);
+      blendPose(ps, { torso: 0.1, head: -0.06, arms: [{ fwd: 1.45, el: 0.2 }, { fwd: 0.3, el: 0.4 }] }, k);
+      return;
+    }
+    if (a === 'wave') {
+      const k = U.smoothstep(0, 0.2, t) * (1 - U.smoothstep(1.1, 1.4, t));
+      blendPose(ps, { torso: -0.03, arms: [{ fwd: 2.55, el: 0.55 + Math.sin(t * 13) * 0.45 }] }, k);
+      return;
+    }
+    if (a === 'call') {
+      // manos en la boca para llamar a la oveja
+      const k = U.smoothstep(0, 0.15, t) * (1 - U.smoothstep(0.85, 1.1, t));
+      blendPose(ps, { torso: -0.06, head: -0.12, arms: [{ fwd: 2.2, el: 1.9 }, { fwd: 2.0, el: 2.0 }] }, k);
+      return;
+    }
+    if (a === 'mantle') {
+      // subiendo por el borde de la escalera: agachada que se incorpora
+      const k = 1 - U.smoothstep(0, 0.42, t);
+      blendPose(ps, { hipY: M.hipY + 24, torso: 0.55, head: -0.15, arms: [{ fwd: 1.4, el: 0.3 }, { fwd: 1.2, el: 0.4 }] }, k);
+      return;
+    }
+    if (a === 'shake') {
+      // sacude el árbol con las dos manos
+      const k = U.smoothstep(0, 0.15, t) * (1 - U.smoothstep(0.9, 1.15, t));
+      blendPose(ps, { hipY: M.hipY + 4, torso: 0.08 + Math.sin(t * 30) * 0.05, arms: [{ fwd: 1.75 + Math.sin(t * 30) * 0.12, el: 0.25 }, { fwd: 1.6 + Math.sin(t * 30) * 0.12, el: 0.3 }] }, k);
+      return;
+    }
+    if (a === 'read') {
+      const k = U.smoothstep(0, 0.3, t);
+      blendPose(ps, { head: -0.1, arms: [{ fwd: 0.35, el: 0.6 }, { fwd: 0.2, el: 0.5 }] }, k);
+      return;
+    }
     if (a === 'interact' || a === 'pick') {
       const k = U.smoothstep(0, 0.25, t) * (1 - U.smoothstep(0.8, 1.05, t));
       ps.hipY = M.hipY + 20 * k;
@@ -562,7 +691,33 @@
     g.blink = Math.max(0, g.blink - dt);
     g.lookT -= dt;
     if (g.lookT <= 0) { g.lookTarget = Math.random() < 0.5 ? 0 : (Math.random() < 0.5 ? -1 : 1); g.lookT = 2.5 + Math.random() * 4; }
+    // mirada hacia lo que le interesa (la oveja, el pastor, una semilla, una mariposa)
+    let headT = 0;
+    if (g.lookAt) {
+      const dx = (g.lookAt.x - g.x) * g.facing, dy = g.lookAt.y - (g.y - 150);
+      if (dx > -40) {
+        g.lookTarget = U.clamp(dx / 160, -1, 1);
+        headT = U.clamp(Math.atan2(dy, Math.abs(dx) + 70) * 0.45, -0.24, 0.2);
+      }
+    }
+    g.headLook = U.damp(g.headLook, g.mode === 'ground' ? headT : 0, 5, dt);
     g.look = U.damp(g.look, g.mode === 'ground' && g.speed < 5 ? g.lookTarget : 0, 4, dt);
+    // giro: a mitad de la vuelta cambia el lado dibujado
+    if (g.facing !== g.turnTo) { g.turnTo = g.facing; if (g.turnT <= 0) g.turnT = g.mode === 'air' ? TURN * 0.6 : TURN; }
+    if (g.turnT > 0) {
+      g.turnT -= dt;
+      if (g.turnT <= TURN * 0.3 || g.turnT <= 0) g.drawFacing = g.turnTo;
+      if (g.turnT <= 0) { g.turnT = 0; g.drawFacing = g.turnTo; }
+    } else g.drawFacing = g.facing;
+    const calm = g.mode === 'ground' && g.speed < 8 && !g.action && !g.crouch && !g.lookUp && !g.teeter;
+    g.brakeK = U.damp(g.brakeK, g.brake && g.mode === 'ground' ? 1 : 0, g.brake ? 16 : 9, dt);
+    g.teeterK = U.damp(g.teeterK, g.teeter && g.mode === 'ground' ? 1 : 0, 8, dt);
+    g.crouchK = U.damp(g.crouchK, g.crouch && g.mode === 'ground' ? 1 : 0, 13, dt);
+    g.lookUpK = U.damp(g.lookUpK, g.lookUp && g.mode === 'ground' ? 1 : 0, 8, dt);
+    g.stretchK = U.damp(g.stretchK, calm && g.idleT > 7 && g.idleT < 8.9 ? 1 : 0, 6, dt);
+    g.sitK = U.damp(g.sitK, calm && !g.bench && g.idleT > 16 ? 1 : 0, calm ? 2.6 : 12, dt);
+    g.benchK = U.damp(g.benchK, g.bench ? 1 : 0, g.bench ? 5 : 10, dt);
+    g.lookUpK = Math.max(g.lookUpK, calm && !g.bench && g.idleT > 11 && g.idleT < 13.5 ? U.smoothstep(11, 11.8, g.idleT) * (1 - U.smoothstep(12.8, 13.5, g.idleT)) : 0);
     if (g.action) {
       g.actionT += dt;
       if (g.actionDur && g.actionT > g.actionDur) { g.action = null; g.actionT = 0; }
@@ -574,8 +729,18 @@
     else if (g.mode === 'air') airPose(g, ps);
     else if (g.mode === 'push') gaitPose(g, ps, Math.max(18, g.speed), dt, { push: true });
     else if (g.speed > 8) { gaitPose(g, ps, g.speed, dt); g.idleT = 0; }
-    else { idlePose(g, ps, dt); g.idleT += dt; }
-    if (g.mode !== 'air' && g.mode !== 'climb' && g.landT < 0.16) landPose(g, ps);
+    else { idlePose(g, ps, dt); g.idleT = calm ? g.idleT + dt : 0; }
+    if (g.mode === 'ground' || g.mode === 'push') {
+      if (g.landT < 0.16) landPose(g, ps);
+      ps.head += g.headLook;
+      stretchPose(g, ps);
+      sitPose(g, ps);
+      benchPose(g, ps);
+      lookUpPose(g, ps);
+      crouchPose(g, ps);
+      teeterPose(g, ps);
+      brakePose(g, ps);
+    }
     if (g.action) actionPose(g, ps);
 
     // cansancio: sube al correr mucho y baja al descansar
@@ -584,12 +749,32 @@
     // expresión por contexto si no hay una impuesta
     if (g.exprT <= 0) {
       g.expr = g.mode === 'push' ? 'determinada'
+        : g.teeterK > 0.5 ? 'preocupada'
+        : g.stretchK > 0.5 ? 'cansada'
         : g.tired > 0.6 && g.speed < 8 ? 'cansada'
         : g.mode === 'air' && g.vy > 500 ? 'sorpresa'
         : g.mode === 'climb' ? 'determinada'
-        : g.action === 'pet' || g.action === 'celebrate' ? 'alegre'
+        : g.action === 'pet' || g.action === 'celebrate' || g.action === 'wave' ? 'alegre'
+        : g.sitK > 0.6 ? 'pensativa'
         : 'tranquila';
     }
+    // al estirarse cierra los ojos y bosteza
+    if (g.stretchK > 0.6) g.blink = Math.max(g.blink, 0.02);
+
+    // mochila: muelle que sigue al torso con retraso (rebota al correr y al aterrizar)
+    const refX = g.x + ps.hipX * g.facing, refY = g.y + ps.hipY;
+    if (!g.packRef) g.packRef = [refX, refY];
+    const h = Math.min(dt, 0.05);
+    const ax = refX - g.packRef[0], ay = refY - g.packRef[1];
+    g.packRef = [refX, refY];
+    g.packVX += (-ax / Math.max(h, 1e-3) * 0.9 - g.packX * 260 - g.packVX * 16) * h;
+    g.packVY += (-ay / Math.max(h, 1e-3) * 0.9 - g.packY * 260 - g.packVY * 16) * h;
+    g.packX = U.clamp(g.packX + g.packVX * h, -3.5, 3.5);
+    g.packY = U.clamp(g.packY + g.packVY * h, -4.5, 4.5);
+    // bajo del suéter: se abre con la velocidad y el viento
+    const hemT = U.clamp(-g.vx * 0.0007 * g.facing + g.wind * 0.012 + Math.sin(g.t * 2.3) * 0.015 + (g.mode === 'air' ? -g.vy * 0.00012 : 0), -0.24, 0.24);
+    g.hemV += ((hemT - g.hemSkew) * 120 - g.hemV * 10) * h;
+    g.hemSkew += g.hemV * h;
 
     // pelo: inercia respecto al movimiento y viento
     const vx = g.mode === 'climb' ? 0 : g.vx, vy = g.mode === 'climb' ? g.vy * 0.3 : g.vy;
@@ -606,6 +791,7 @@
     Rig.part(ctx, up, sx, sy, r1);
     const ex = sx + Math.sin(fwd) * M.upper, ey = sy + Math.cos(fwd) * M.upper;
     Rig.part(ctx, fore, ex, ey, -(fwd + el));
+    return [ex + Math.sin(fwd + el) * (M.fore + 3), ey + Math.cos(fwd + el) * (M.fore + 3), fwd + el];
   }
 
   function torsoXf(ps) {
@@ -724,8 +910,23 @@
     ctx.translate(ps.hipX, ps.hipY);
     ctx.rotate(ps.torso);
     ctx.scale(1, ps.breath);
+    ctx.save();
+    ctx.translate(-26, -22);
+    ctx.rotate(g.packY * 0.025 - g.packX * 0.02);
+    ctx.translate(26 + g.packX * 0.6, 22 + g.packY);
     Rig.part(ctx, S.pack, 0, 0);
+    ctx.restore();
+    // el suéter en dos pasadas: el cuerpo rígido y el bajo (desde la cintura) con vuelo
+    const WAIST = -7;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(-40, -60, 80, 60 + WAIST + 0.6); ctx.clip();
     Rig.part(ctx, S.torso, 0, 0);
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(-40, WAIST - 0.6, 80, 40); ctx.clip();
+    ctx.transform(1, 0, g.hemSkew, 1, -g.hemSkew * WAIST, 0);
+    Rig.part(ctx, S.torso, 0, 0);
+    ctx.restore();
     ctx.strokeStyle = P.packShade;
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
@@ -755,7 +956,19 @@
     Rig.drawStrands(ctx, g.hair.slice(0, 18), HAIR_COLS);
     ctx.restore();
     ctx.restore();
-    // brazo cercano
+    // brazo cercano (con el ramillete de campanillas si lleva alguna)
+    if (g.carry > 0 && S.bouquet) {
+      const a = ps.arms[0];
+      const ex = shN[0] + Math.sin(a.fwd) * M.upper, ey = shN[1] + Math.cos(a.fwd) * M.upper;
+      const hx = ex + Math.sin(a.fwd + a.el) * (M.fore + 3), hy = ey + Math.cos(a.fwd + a.el) * (M.fore + 3);
+      const k = Math.min(1, 0.45 + g.carry * 0.14);
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(-(a.fwd + a.el) * 0.35 + 0.15);
+      ctx.scale(k, k);
+      ctx.drawImage(S.bouquet.c, -S.bouquet.ox, -S.bouquet.oy, S.bouquet.w, S.bouquet.h);
+      ctx.restore();
+    }
     drawArm(ctx, shN[0], shN[1], ps.arms[0].fwd, ps.arms[0].el, S.upperN, S.foreN);
   }
 
@@ -795,14 +1008,17 @@
     ctx.restore();
   }
 
+  const BOX = [-85, -225, 85, 32]; // caja local que contiene a la niña con pelo y brazos
+
   function draw(ctx, g) {
-    if (!g.pose) return;
+    if (!g.pose || g.alpha <= 0.004) return;
     ctx.save();
-    ctx.translate(g.x, g.y);
-    ctx.scale(g.facing * g.scale, g.scale);
-    if (g.alpha < 1) ctx.globalAlpha = g.alpha;
-    if (g.pose.view === 'back') drawBack(ctx, g, g.pose);
-    else drawSide(ctx, g, g.pose);
+    ctx.translate(g.x + g.offX, g.y + g.offY);
+    // media vuelta: se estrecha en x y cambia de lado a mitad (pseudo‑giro en profundidad)
+    const k = g.turnT > 0 && g.pose.view !== 'back' ? 1 - g.turnT / TURN : 1;
+    const sx = 1 - 0.62 * Math.sin(Math.PI * U.clamp(k, 0, 1));
+    ctx.scale(g.drawFacing * g.scale * sx, g.scale);
+    Rig.faded(ctx, g.alpha, BOX, (c) => (g.pose.view === 'back' ? drawBack(c, g, g.pose) : drawSide(c, g, g.pose)));
     ctx.restore();
   }
 

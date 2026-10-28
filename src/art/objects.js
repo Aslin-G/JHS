@@ -136,13 +136,39 @@
     });
   }
 
-  // Roca que se puede empujar (§29 «mover»): bloque redondeado y pesado.
+  // Roca que se puede empujar (§29 «mover»): un bloque irregular de aristas suaves apoyado en su
+  // cara más ancha, con facetas iluminadas por el sol (arriba a la derecha). El punto de anclaje
+  // es el centro de la base, y la cara superior es casi plana para poder subirse.
   function boulder(w, h) {
-    const rx = w / 2 + 4, ry = h / 2 + 2;
     const rng = U.makeRng(690);
-    const poly = Props.smoothBlob(0, 0, rx, ry, 9, rng, 0.08, 0.75);
-    return Paint.makeSprite({ w: rx * 2 + 30, h: ry * 2 + 24, ox: rx + 15, oy: ry + 10, res: RES, post: { edge: 0.45, grain: 0.55, density: 0.25 } }, (g) => {
-      Props.paintRockShape(g, poly, rx, ry, 691, { cool: true, moss: true, warm: 0.3 });
+    const hw = w / 2 + 4, H = h;
+    const j = (v) => v + rng.range(-3.5, 3.5);
+    // vértices en espacio centrado (y de -H/2 a +H/2)
+    const c = (x, y) => [j(x), j(y - H / 2)];
+    const verts = [c(-hw + 4, H - 2), c(-hw - 3, H * 0.6), c(-hw * 0.78, H * 0.16), c(-hw * 0.3, 1), c(hw * 0.28, -1), c(hw * 0.8, H * 0.12),
+      c(hw + 3, H * 0.55), c(hw - 3, H - 3), c(hw * 0.3, H + 2), c(-hw * 0.4, H + 2)];
+    const poly = U.spline(verts, 2, true);
+    const rx = hw, ry = H / 2;
+    return Paint.makeSprite({ w: hw * 2 + 44, h: H + 44, ox: hw + 22, oy: H + 18, res: RES, post: { edge: 0.45, grain: 0.5, density: 0.18 } }, (g) => {
+      // sombra de contacto en el suelo
+      Paint.shade(g, U.blobPoly(4, 1, hw * 1.08, 7, 14, rng, 0.12), '#5d4838', { layers: 5, alpha: 0.12, amp: 3, seed: 692, edge: 0 });
+      g.save();
+      g.translate(0, -H / 2);
+      Props.paintRockShape(g, poly, rx, ry, 691, { cool: true, moss: true, warm: 0.35, inkW: 2.6 });
+      // facetas: cara superior iluminada, cara izquierda en sombra, arista central entintada
+      const ridge = [[-hw * 0.18, -H * 0.18], [hw * 0.22, -H * 0.12], [hw * 0.36, H * 0.32]];
+      Paint.within(g, poly, () => {
+        Paint.wash(g, [verts[2], verts[3], verts[4], verts[5], ridge[1], ridge[0]], '#efe0c2', { layers: 3, alpha: 0.32, amp: 2, seed: 693, edge: 0.1 });
+        Paint.shade(g, [verts[0], verts[1], verts[2], ridge[0], [-hw * 0.1, H * 0.5]], P.rockShade, { layers: 3, alpha: 0.2, amp: 3, seed: 694, edge: 0 });
+        g.strokeStyle = P.inkSoft; g.lineWidth = 0.8; g.globalAlpha = 0.3;
+        g.beginPath();
+        for (let k = 0; k < 9; k++) { const y = -H * 0.1 + k * H * 0.07; g.moveTo(-hw * 0.95, y); g.lineTo(-hw * 0.55, y + H * 0.1); }
+        g.stroke();
+        g.globalAlpha = 1;
+      });
+      Paint.ink(g, ridge, { w: 1.4, alpha: 0.55, seed: 695, taper: 0.5 });
+      Paint.ink(g, [ridge[0], verts[2]], { w: 1.1, alpha: 0.45, seed: 696, taper: 0.5 });
+      g.restore();
     });
   }
 

@@ -55,6 +55,7 @@
     leafLight: '#d9cf7d', leafSun: '#e9de8c', leafMid: '#88a067', leafShade: '#5a7655', leafDeep: '#3c5440',
     grass: '#a6a354', grassDark: '#6e7338', grassLight: '#d2c66c',
     flowerWhite: '#fcf7ec', flowerCenter: '#eea733', flowerYellow: '#e8bd44', flowerLilac: '#a395b9',
+    bell: '#8d93c8', bellShade: '#5e649f', bellLight: '#c6c7ea',
     gold: '#f1b13d', amber: '#e08b2a', seedGlow: '#ffdc8f',
     river: '#93a6b1', riverLight: '#d9e1df', mist: '#f1e8da',
     lanternGlow: '#ffc56b', metal: '#4a4440',

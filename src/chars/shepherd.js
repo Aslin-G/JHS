@@ -358,7 +358,21 @@
       ps.bodyY = 14 * k;
       ps.head = 0.18 * k;
       ps.arms[0] = { fwd: U.lerp(0.1, 0.9, k), el: 0.2 };
+    } else if (a === 'wave') {
+      // saludo con la mano en alto
+      const k = U.smoothstep(0, 0.25, s.animT) * (1 - U.smoothstep(1.3, 1.6, s.animT));
+      // la mano queda por delante y por encima de la cara, hacia quien saluda
+      ps.arms[0] = { fwd: U.lerp(0.1, 2.15, k), el: U.lerp(0.35, 0.3 + Math.sin(s.animT * 9) * 0.38, k) };
+      ps.head = -0.05 * k;
     }
+    // al hablar con la niña de cerca se inclina hacia ella
+    s.bendK = U.damp(s.bendK || 0, s.bend ? 1 : 0, 3, dt);
+    if (s.bendK > 0.01) { ps.bodyY += 11 * s.bendK; ps.head += 0.14 * s.bendK; }
+    // el viento mueve la túnica y el manto (más abajo, más movimiento)
+    const windT = (s.wind || 0) * 0.011 + Math.sin(s.t * 1.7) * 0.006 + Math.sin(s.t * 4.3) * 0.003 * (s.wind || 0);
+    s.robeV = (s.robeV || 0) + ((windT - (s.robeW || 0)) * 40 - (s.robeV || 0) * 6) * Math.min(dt, 0.05);
+    s.robeW = (s.robeW || 0) + s.robeV * Math.min(dt, 0.05);
+    ps.robeSkew += -s.robeW * s.facing;
     if (a !== 'bless') s.glow = Math.max(0, s.glow - dt * 1.5);
     Rig.stepStrands(s.hair, dt, { vx: s.vx || 0, vy: 0, wind: s.wind || 0, t: s.t, facing: s.facing });
     s.sway = U.damp(s.sway, U.clamp(-(s.vx || 0) * 0.0004 * s.facing + (s.wind || 0) * 0.008, -0.08, 0.08), 3, dt);
@@ -411,13 +425,34 @@
     }
   }
 
+  const BOX = [-90, -345, 100, 26];
+
+  // Posición de la mano cercana (para el brillo de la bendición), sin dibujar.
+  function handPos(ps) {
+    const a = ps.arms[0], sx = M.sh[0][0], sy = M.sh[0][1] + ps.bodyY;
+    const ex = sx + Math.sin(a.fwd) * M.upper, ey = sy + Math.cos(a.fwd) * M.upper;
+    return [ex + Math.sin(a.fwd + a.el) * (M.fore + 8), ey + Math.cos(a.fwd + a.el) * (M.fore + 8)];
+  }
+
   function draw(ctx, s) {
     const ps = s.pose;
-    if (!ps) return;
+    if (!ps || s.alpha <= 0.004) return;
     ctx.save();
     ctx.translate(s.x, s.y);
     ctx.scale(s.facing * s.scale, s.scale);
-    if (s.alpha < 1) ctx.globalAlpha = s.alpha;
+    Rig.faded(ctx, s.alpha, BOX, (c) => drawBody(c, s, ps));
+    const hand = handPos(ps);
+    if (s.glow > 0.01) {
+      ctx.globalCompositeOperation = 'screen';
+      Paint.softBlob(ctx, hand[0], hand[1], 38, P.sunGlow, 0.55 * s.glow * s.alpha);
+      Paint.softBlob(ctx, hand[0], hand[1], 12, '#fffbe8', 0.8 * s.glow * s.alpha);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.restore();
+    s.handWorld = [s.x + hand[0] * s.facing * s.scale, s.y + hand[1] * s.scale];
+  }
+
+  function drawBody(ctx, s, ps) {
     const nx = M.neck[0], ny = M.neck[1] + ps.bodyY;
     const shN = [M.sh[0][0], M.sh[0][1] + ps.bodyY], shF = [M.sh[1][0], M.sh[1][1] + ps.bodyY];
     // pies bajo el borde de la túnica
@@ -425,7 +460,8 @@
     Rig.part(ctx, S.sandalN, ps.feet[0].x, ps.feet[0].y, ps.feet[0].rot);
     // brazo lejano, manto de atrás, pelo de atrás (que cae sobre la espalda)
     drawArm(ctx, shF[0], shF[1], ps.arms[1].fwd, ps.arms[1].el, S.upperF, S.foreF);
-    const robeXf = () => { ctx.translate(nx, ny); ctx.transform(1, 0, ps.robeSkew, 1, 0, 0); ctx.scale(1, ps.breath); };
+    // la túnica cuelga del cuello: al inclinarse se acorta para que el bajo siga en el suelo
+    const robeXf = () => { ctx.translate(nx, ny); ctx.transform(1, 0, ps.robeSkew, 1, 0, 0); ctx.scale(1, ps.breath * (212 - ps.bodyY) / 212); };
     ctx.save(); robeXf(); Rig.part(ctx, S.mantleB, 0, 0); ctx.restore();
     ctx.save(); ctx.translate(nx, ny); ctx.rotate(ps.head * 0.5 + s.sway); ctx.scale(HEAD_K, HEAD_K); Rig.part(ctx, S.hairBack, 0, 0);
     Rig.drawStrands(ctx, s.hair.slice(0, 14), HAIR_COLS); ctx.restore();
@@ -440,16 +476,20 @@
     Rig.part(ctx, S.hairFront, 0, 0);
     Rig.drawStrands(ctx, s.hair.slice(14), HAIR_COLS);
     ctx.restore();
-    // brazo cercano y brillo de bendición
-    const hand = drawArm(ctx, shN[0], shN[1], ps.arms[0].fwd, ps.arms[0].el, S.upperN, S.foreN);
-    if (s.glow > 0.01) {
-      ctx.globalCompositeOperation = 'screen';
-      Paint.softBlob(ctx, hand[0], hand[1], 38, P.sunGlow, 0.55 * s.glow);
-      Paint.softBlob(ctx, hand[0], hand[1], 12, '#fffbe8', 0.8 * s.glow);
-      ctx.globalCompositeOperation = 'source-over';
+    // brazo cercano (con las campanillas que le regala la niña)
+    const bq = s.flowers && JHS.Girl.S.bouquet;
+    if (bq) {
+      const a = ps.arms[0];
+      const ex = shN[0] + Math.sin(a.fwd) * M.upper, ey = shN[1] + Math.cos(a.fwd) * M.upper;
+      const hx = ex + Math.sin(a.fwd + a.el) * (M.fore + 2), hy = ey + Math.cos(a.fwd + a.el) * (M.fore + 2);
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(-(a.fwd + a.el) * 0.3 + 0.1);
+      ctx.scale(1.05, 1.05);
+      ctx.drawImage(bq.c, -bq.ox, -bq.oy, bq.w, bq.h);
+      ctx.restore();
     }
-    ctx.restore();
-    s.handWorld = [s.x + hand[0] * s.facing * s.scale, s.y + hand[1] * s.scale];
+    drawArm(ctx, shN[0], shN[1], ps.arms[0].fwd, ps.arms[0].el, S.upperN, S.foreN);
   }
 
   JHS.Shepherd = { M, S, build, create, update, draw, setAnim };
