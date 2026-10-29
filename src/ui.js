@@ -24,6 +24,10 @@
     UI.seedIcon = JHS.Objects.seed();
     UI.pageIcon = JHS.Objects.page();
     UI.flowerIcon = JHS.Props.bouquet(932);
+    // farol de vidrio y campana (la misma silueta de las estaciones del camino)
+    UI.lanternIcon = Paint.makeSprite({ w: 40, h: 76, ox: 20, oy: 38, res: 2 }, (g) => {
+      if (JHS.M01Art && JHS.M01Art.drawLanternShape) JHS.M01Art.drawLanternShape(g, 0, -30, 0.95, true);
+    });
     UI.fly = [];
   };
 
@@ -119,7 +123,7 @@
     h.a = U.damp(h.a, target, 3, dt);
     const x = 54, y = 46;
     const showF = st.flowersTotal > 0 && (st.flowers > 0 || h.showFlowers);
-    const w = 160 + (showF ? 128 : 0) + (st.page ? 58 : 0);
+    const w = 160 + (showF ? 128 : 0) + (st.stations ? 128 : 0) + (st.page ? 58 : 0);
     h.flowerX = x + 196;
     ctx.save();
     ctx.globalAlpha = h.a;
@@ -138,6 +142,13 @@
       ctx.drawImage(UI.flowerIcon.c, -UI.flowerIcon.ox, -UI.flowerIcon.oy, UI.flowerIcon.w, UI.flowerIcon.h);
       ctx.restore();
       text(ctx, `${st.flowers} / ${st.flowersTotal}`, x + 214, y + 44, 30, { font: F.title, color: P.ink });
+      px += 128;
+    }
+    if (st.stations) {
+      ctx.save(); ctx.translate(px + 4, y + 34); ctx.scale(0.62, 0.62);
+      ctx.drawImage(UI.lanternIcon.c, -UI.lanternIcon.ox, -UI.lanternIcon.oy, UI.lanternIcon.w, UI.lanternIcon.h);
+      ctx.restore();
+      text(ctx, `${st.stations.lit} / ${st.stations.total}`, px + 28, y + 44, 30, { font: F.title, color: P.ink });
       px += 128;
     }
     if (st.page) {

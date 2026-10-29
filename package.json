@@ -4,7 +4,7 @@
   "private": true,
   "description": "Primera prueba jugable del videojuego 2D en acuarela (Biblia Visual §48).",
   "scripts": {
-    "test": "node tools/recorrido.js",
+    "test": "node tools/recorrido.js && node tools/recorrido_m01.js",
     "build": "python3 tools/build_artifact.py"
   },
   "devDependencies": {

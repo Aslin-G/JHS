@@ -12,7 +12,7 @@
     [[-700, 720], [-300, 735], [0, 752], [300, 770], [600, 786], [900, 798], [1200, 806], [1500, 812], [1700, 815], [1890, 818]],
     [[2210, 818], [2500, 815], [2900, 810], [3300, 806], [3700, 804], [4100, 800], [4500, 796], [4800, 790], [5000, 784],
       [5400, 760], [5700, 732], [5700, 698], [6000, 684], [6300, 664], [6300, 630], [6600, 616], [7000, 604], [7400, 598],
-      [7800, 592], [8200, 589], [8600, 587], [9100, 586]],
+      [7800, 592], [8200, 589], [8600, 587], [9100, 586], [9420, 586]],
   ];
   // Altura del suelo en x (fuera del suelo: la de los extremos; sobre el arroyo: la de sus orillas).
   function gy(x) {
@@ -98,7 +98,7 @@
       'Ester siempre deja una luz encendida en su puerta.', 'Las semillas de luz se esconden donde la gente casi no mira.'],
     callText: '¡Ven, Nuba!',
 
-    ester: { x: 1250, home: 1250 },
+    ester: { x: 1240, range: [1090, 1390] },
     knight: { x: 7420, zone: [6640, 7760], waves: { every: [2.4, 3.4], speed: 330 } },
     finale: { x: 8280, bench: 8360 },
 
@@ -111,12 +111,14 @@
     decor: {
       bench: [{ x: 1120 }, { x: 8360 }],
       trees: [
-        { x: 380, h: 430, seed: 71, kind: 'olive' },
+        { x: 3540, h: 430, seed: 71, kind: 'olive' },
         { x: 4350, h: 400, seed: 73, kind: 'olive' },
         { x: 6860, h: 460, seed: 75, kind: 'olive' },
         { x: 8130, h: 560, seed: 77, kind: 'olive' },
       ],
     },
+    // los olivos del camino se pintan con la misma factura que el resto del valle
+    treeSprite: (t) => JHS.M01Art.oliveTree(t),
     // ambiente (ficha: flores amarillas y blancas, salvia y oliva; hierba que se mueve en grupos)
     ambient: {
       seed: 3100,

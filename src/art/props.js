@@ -211,14 +211,15 @@
   // ---------------------------------------------------------------- árbol (§52)
   // Olivo de tronco retorcido con copa hecha de cientos de toques de verde amarillento.
   // Olivo del valle (concepto del Mundo 1): copa más ancha y baja, verde plateado.
-  const OLIVE = { leafLight: '#d7d29c', leafMid: '#a9a56c', leafShade: '#838255', leafDeep: '#5f6040', grassLight: '#c8c58c' };
+  // Colores medidos en el olivo del concepto: oliva tostado con luces de miel y sombras pardas.
+  const OLIVE = { leafLight: '#dcc589', leafMid: '#a8945a', leafShade: '#7d6c3c', leafDeep: '#4f4424', grassLight: '#e6d39c' };
   function tree(seed, o = {}) {
     if (o.kind === 'olive') {
       const keep = {};
       for (const k in OLIVE) { keep[k] = P[k]; P[k] = OLIVE[k]; }
       try {
         const H = o.h || 460;
-        return treeImpl(seed, Object.assign({ cw: H * 1.15, ch: H * 0.5, trunkW: H * 0.09, limbs: 4, lobes: 8 }, o, { kind: null }));
+        return treeImpl(seed, Object.assign({ cw: H * 1.15, ch: H * 0.5, trunkW: H * 0.09, limbs: 4, lobes: 8, dabs: Math.round(H * 1.7) }, o, { kind: null }));
       } finally { Object.assign(P, keep); }
     }
     return treeImpl(seed, o);

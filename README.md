@@ -99,6 +99,34 @@ facetada que se ve bien desde cualquier ángulo) y se añadió:
   tecla; M o el menú de pausa lo silencian.
 - **Hoja de personajes:** nueva página con todas las animaciones añadidas.
 
+## Mundo 1: «Valle del Amanecer»
+
+Al terminar el prólogo, el menú final ofrece **bajar al Valle del Amanecer** (también se elige desde
+el título, o con `index.html?mundo=m01`). Sigue la [ficha de mundo](docs/mundos/M01_Ficha_de_Mundo.md)
+y el [arte conceptual](docs/referencias/M01_concepto_valle_del_amanecer.jpg); las decisiones de
+adaptación están en [`docs/mundos/M01_Diseno.md`](docs/mundos/M01_Diseno.md).
+
+![Concepto frente al juego](docs/validacion/m01_00_concepto_vs_juego.jpg)
+
+- **El lugar:** la casa de piedra de Ester con su farol encendido, el gran árbol que enmarca el cielo,
+  un puente de tablas sobre el arroyo que baja en saltos entre rocas, el taller, la huerta con su
+  acequia, el pueblo del campanario con su acueducto y su cascada, olivos y cipreses, montañas lavanda
+  y la luz de miel de un sol bajo.
+- **Remendar el puente:** tres tablones de la leñera, de uno en uno (con carga no se corre ni se salta).
+- **Tres estaciones de ruta** (farol de vidrio y campana) que se reparan manteniendo E. Con cada una
+  el valle cambia: el taller se abre, la ropa se tiende, el agua llega a los campos, la huerta crece,
+  el pueblo enciende sus ventanas y toca la campana. La geometría de colisión no cambia.
+- **Ester**, la vecina: saluda, riega, mira la colina y se estira; lo que cuenta cambia con el valle.
+- **El Caballero de la Niebla** en la Colina de las Piedras: anuncia cada ola con la lanza, el cuerno y
+  la niebla que se junta en la punta; las bajas se saltan y las altas se pasan agachada. Si alcanzan a
+  la niña, solo la empujan. Al lucir el último farol se arrodilla y la niebla se retira.
+- **Opciones de comodidad** en la pausa: «Primer plano: reducido» y «Niebla: reducida».
+- **Final:** la cámara recorre el valle restaurado y el Pastor bendice el camino hacia el bosque.
+
+| Casa de Ester | Puente remendado | El Caballero |
+| --- | --- | --- |
+| ![](docs/validacion/m01_01_casa_de_ester.jpg) | ![](docs/validacion/m01_03_puente_remendado.jpg) | ![](docs/validacion/m01_06_caballero_ola_baja.jpg) |
+
 ## Estructura
 
 ```
@@ -114,7 +142,11 @@ src/chars/rig.js         IK, ciclos de marcha, mechones con física
 src/chars/girl.js        la niña
 src/chars/sheep.js       la oveja
 src/chars/shepherd.js    el Buen Pastor
-src/world/level.js       datos del nivel «Camino de montaña al amanecer»
+src/chars/ester.js       Ester (Mundo 1)
+src/chars/knight.js      el Caballero de la Niebla y sus olas (Mundo 1)
+src/worlds/m00.js        guion del prólogo
+src/worlds/m01/          Mundo 1: nivel, arte por capas y guion (estados, estaciones, encuentro, final)
+src/world/level.js       datos del prólogo «Camino de montaña al amanecer»
 src/world/layers.js      capas de parallax troceadas
 src/world/physics.js     control de plataformas, escalera, empujar, puente
 src/world/camera.js      cámara
@@ -130,7 +162,9 @@ docs/BIBLIA_VISUAL.md    la biblia visual (fuente de verdad)
 docs/referencias/        lámina conceptual original
 docs/VALIDACION_PRUEBA_1.md  validación de esta prueba contra la biblia (§45, §81, §83)
 tools/build_artifact.py  empaquetado en un único HTML
-tools/recorrido.js       prueba automática de recorrido completo
+tools/recorrido.js       prueba automática del prólogo
+tools/recorrido_m01.js   prueba automática del Mundo 1
+docs/mundos/             ficha y diseño del Mundo 1
 ```
 
 ## Prueba automática
@@ -141,12 +175,13 @@ Con Node.js y Playwright (`npm install` instala la versión fijada en `package.j
 npm test
 ```
 
-Un bot juega el nivel completo (con paso de tiempo fijo, para que el resultado no dependa de la
+Primero el prólogo y después el Mundo 1. En el prólogo, un bot juega el nivel completo (con paso de tiempo fijo, para que el resultado no dependa de la
 velocidad del equipo) y comprueba que se llega al final sin caídas, que el cofre da la página del
 diario, que recoge campanillas y sacude el árbol de la semilla escondida, que la niña regala el
 ramillete al Pastor en el mirador, que la oveja llega con ella y que no hay errores en la página. Con
 `node tools/recorrido.js --capturas carpeta/` guarda además capturas del título, el final y la
-hoja de personajes.
+hoja de personajes. En el Mundo 1, otro bot habla con Ester, remienda el puente, repara las tres
+estaciones, abre el cofre, esquiva las olas del Caballero y llega al final sin caerse.
 
 ## Estado
 

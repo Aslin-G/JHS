@@ -77,73 +77,137 @@
   };
 
   // ------------------------------------------------------------------ piezas del plano jugable
-  function boulder(g, x, base, rx, ry, rng, seed) {
-    const poly = Props.smoothBlob(x, base - ry * 0.85, rx, ry, 11, rng, 0.14, 0.55);
-    Paint.shade(g, U.blobPoly(x + rx * 0.1, base + 1, rx * 1.1, ry * 0.18, 12, rng, 0.1), '#4d3e30', { layers: 3, alpha: 0.3, amp: 2, seed: seed + 1, edge: 0 });
-    Paint.wash(g, poly, rng.pick(['#b4a48e', '#a8987f', '#bba98f']), { layers: 4, alpha: 0.6, amp: 1, seed, edge: 0.3, core: 1, vary: '#d6c4a6', varyAmt: 0.4 });
-    Paint.within(g, poly, () => {
-      Paint.wash(g, U.blobPoly(x + rx * 0.25, base - ry * 1.3, rx * 0.7, ry * 0.4, 10, rng, 0.25), '#e8d8ba', { layers: 3, alpha: 0.4, amp: 2, seed: seed + 2, edge: 0 });
-      Paint.shade(g, U.blobPoly(x - rx * 0.4, base - ry * 0.3, rx * 0.8, ry * 0.55, 10, rng, 0.25), '#6e5c4b', { layers: 3, alpha: 0.28, amp: 2, seed: seed + 3, edge: 0 });
-      // granito: motas finas, oscuras y claras, a baja opacidad
-      Paint.splatter(g, x, base - ry * 0.85, rx, ry * 0.85, rx * ry / 18, '#5e4f43', { alpha: 0.35, rmin: 0.4, rmax: 1, seed: seed + 4 });
-      Paint.splatter(g, x, base - ry * 0.85, rx, ry * 0.85, rx * ry / 24, '#f4e8d2', { alpha: 0.5, rmin: 0.4, rmax: 1.1, seed: seed + 5 });
-      if (rng.chance(0.5)) Paint.wash(g, U.blobPoly(x + rng.range(-rx * 0.4, rx * 0.3), base - ry * 1.45, rx * 0.35, ry * 0.12, 8, rng, 0.3), C.leaf, { layers: 2, alpha: 0.4, amp: 1, seed: seed + 6, edge: 0.1 });
+  // Elementos anclados a una rejilla del mundo: cada celda tiene su propia semilla, así un tramo
+  // y su vecino pintan exactamente lo mismo donde se solapan (no hay costuras entre tramos).
+  function cells(xa, xb, size, salt, fn) {
+    const i0 = Math.floor(xa / size) - 1, i1 = Math.ceil(xb / size) + 1;
+    for (let i = i0; i <= i1; i++) fn(U.makeRng((Math.imul(i, 7919) ^ Math.imul(salt, 104729)) >>> 0), i * size, i);
+  }
+  Art.cells = cells;
+
+  // Trazo continuo anclado al mundo, partido en tramos fijos (mismo dibujo en piezas vecinas).
+  function worldInk(g, fy, xa, xb, lim0, lim1, o, salt) {
+    const T = 240;
+    for (let t0 = Math.floor((xa - 30) / T) * T; t0 < xb + 30; t0 += T) {
+      const a = Math.max(t0 - 3, lim0), b = Math.min(t0 + T + 3, lim1);
+      if (b - a < 6) continue;
+      const pts = [];
+      for (let x = a; x < b; x += 6) pts.push([x, fy(x)]);
+      pts.push([b, fy(b)]);
+      Paint.ink(g, pts, Object.assign({ taper: 0, seed: salt + Math.round(t0 / T) * 31 }, o));
+    }
+  }
+
+  // Briznas a lo largo de un borde (celdas de 4,5 u: deterministas en el mundo).
+  function fringe(g, fy, xa, xb, lim0, lim1, density, salt, cols, hk = 1) {
+    g.lineCap = 'round';
+    cells(Math.max(xa, lim0), Math.min(xb, lim1), 4.5, salt, (r, cx) => {
+      const x = cx + r.range(0, 4.5);
+      if (x < lim0 || x > lim1 || !r.chance(density)) return;
+      const y = fy(x);
+      const h = r.range(4, 14) * (r.chance(0.12) ? 1.8 : 1) * hk;
+      const lean = r.range(-0.5, 0.6);
+      g.strokeStyle = r.pick(cols);
+      g.globalAlpha = r.range(0.6, 0.95);
+      g.lineWidth = r.range(1, 2.2);
+      g.beginPath(); g.moveTo(x, y + 2); g.quadraticCurveTo(x + lean * h * 0.3, y - h * 0.6, x + lean * h, y - h); g.stroke();
     });
-    Paint.ink(g, poly, { closed: true, w: 1.5, alpha: 0.6, seed: seed + 7, breaks: 0.25, sketch: 0.3 });
+    g.globalAlpha = 1;
+  }
+  const GRASS = ['#6d5a26', '#8a7436', '#a68a45', '#5a4a1e', '#9a9454', '#b39350'];
+  const GRASS_LIT = ['#b39350', '#c9a45a', '#a68a45', '#d8b665', '#8a7436', '#e0bd6a'];
+
+  // Roca redonda del valle (concepto): pardo grisácea cálida, luz de miel arriba, base oscura,
+  // granito fino, musgo oliva y contorno de tinta parda.
+  function boulder(g, x, base, rx, ry, rng, seed, o = {}) {
+    const poly = Props.smoothBlob(x, base - ry * 0.85, rx, ry, 11, rng, 0.14, 0.55);
+    Paint.shade(g, U.blobPoly(x + rx * 0.12, base + 1, rx * 1.12, ry * 0.2, 12, rng, 0.1), '#3e2a12', { layers: 3, alpha: 0.32, amp: 2, seed: seed + 1, edge: 0 });
+    Paint.wash(g, poly, rng.pick(['#9a7d58', '#8d704a', '#a08463', '#94785a']), { layers: 4, alpha: 0.62, amp: 1, seed, edge: 0.3, core: 1, vary: '#b39466', varyAmt: 0.45 });
+    Paint.within(g, poly, () => {
+      Paint.wash(g, U.blobPoly(x + rx * 0.22, base - ry * 1.32, rx * 0.72, ry * 0.42, 10, rng, 0.25), '#e9c88e', { layers: 3, alpha: 0.5, amp: 2, seed: seed + 2, edge: 0 });
+      Paint.shade(g, U.blobPoly(x - rx * 0.38, base - ry * 0.28, rx * 0.85, ry * 0.58, 10, rng, 0.25), '#5c4126', { layers: 3, alpha: 0.32, amp: 2, seed: seed + 3, edge: 0 });
+      Paint.splatter(g, x, base - ry * 0.85, rx, ry * 0.85, rx * ry / 16, '#4a3420', { alpha: 0.32, rmin: 0.4, rmax: 1.1, seed: seed + 4 });
+      Paint.splatter(g, x, base - ry * 0.85, rx, ry * 0.85, rx * ry / 22, '#f6dfae', { alpha: 0.45, rmin: 0.4, rmax: 1.1, seed: seed + 5 });
+      if (o.moss !== false && rng.chance(0.65)) Paint.wash(g, U.blobPoly(x + rng.range(-rx * 0.4, rx * 0.3), base - ry * 1.5, rx * rng.range(0.3, 0.5), ry * 0.16, 9, rng, 0.35), rng.pick(['#8b7a3c', '#9a8a48', '#7a6c34']), { layers: 2, alpha: 0.5, amp: 1, seed: seed + 6, edge: 0.1 });
+      if (o.wet) Paint.shade(g, [[x - rx * 1.2, base - ry * 0.35], [x + rx * 1.2, base - ry * 0.35], [x + rx * 1.2, base + 2], [x - rx * 1.2, base + 2]], '#4b4a42', { layers: 2, alpha: 0.35, amp: 2, seed: seed + 8, edge: 0 });
+    });
+    Paint.ink(g, poly, { closed: true, w: 1.5, alpha: 0.62, color: '#4a3220', seed: seed + 7, breaks: 0.25, sketch: 0.3 });
   }
   Art.boulder = boulder;
 
-  function flowerCluster(g, x, y, n, rng, seed, kinds = ['daisy', 'yellow', 'yellow', 'pink']) {
-    for (let i = 0; i < n; i++) {
-      const fx = x + rng.range(-26, 26), fy = y + rng.range(-10, 10), kind = rng.pick(kinds);
-      Paint.ink(g, [[fx, fy + 10], [fx + rng.range(-2, 2), fy]], { w: 0.9, alpha: 0.7, color: P.grassDark, seed: seed + i });
-      if (kind === 'daisy') {
-        for (let k = 0; k < 9; k++) {
-          const a = k / 9 * U.TAU;
-          g.fillStyle = U.rgba('#fffaf0', 0.95);
-          g.beginPath(); g.ellipse(fx + Math.cos(a) * 3.4, fy + Math.sin(a) * 2.4, 2.6, 1.1, a, 0, U.TAU); g.fill();
-        }
-        g.fillStyle = '#eab33a'; g.beginPath(); g.arc(fx, fy, 1.5, 0, U.TAU); g.fill();
-      } else {
-        const col = kind === 'pink' ? '#e2a0b2' : kind === 'lilac' ? '#b6a3c8' : '#f2c23c';
-        for (let k = 0; k < 6; k++) {
-          const a = k / 6 * U.TAU;
-          g.fillStyle = U.rgba(col, 0.9);
-          g.beginPath(); g.ellipse(fx + Math.cos(a) * 2.2, fy + Math.sin(a) * 1.6, 2, 1.4, a, 0, U.TAU); g.fill();
-        }
-        g.fillStyle = U.rgba('#9a6a1e', 0.8); g.beginPath(); g.arc(fx, fy, 0.9, 0, U.TAU); g.fill();
+  // Flor silvestre de la ladera; `s` crece con la cercanía (lo de abajo está más cerca).
+  function wildFlower(g, fx, fy, kind, s, rng, seed) {
+    Paint.ink(g, [[fx, fy + 10 * s], [fx + rng.range(-2, 2) * s, fy]], { w: 0.9 * s, alpha: 0.7, color: '#5a5222', seed });
+    if (kind === 'daisy') {
+      const n = 10;
+      for (let k = 0; k < n; k++) {
+        const a = k / n * U.TAU + rng.range(-0.1, 0.1);
+        g.fillStyle = U.rgba('#fffaf0', 0.95);
+        g.beginPath(); g.ellipse(fx + Math.cos(a) * 3.4 * s, fy + Math.sin(a) * 2.2 * s, 2.7 * s, 1.1 * s, a, 0, U.TAU); g.fill();
       }
+      g.fillStyle = '#e7a92c'; g.beginPath(); g.arc(fx, fy, 1.6 * s, 0, U.TAU); g.fill();
+    } else {
+      const col = kind === 'pink' ? '#e39fb1' : kind === 'lilac' ? '#b4a0cb' : rng.pick(['#f3c232', '#f6cf45', '#eeb424']);
+      const n = kind === 'yellow' ? 7 : 6;
+      for (let k = 0; k < n; k++) {
+        const a = k / n * U.TAU;
+        g.fillStyle = U.rgba(col, 0.92);
+        g.beginPath(); g.ellipse(fx + Math.cos(a) * 2.3 * s, fy + Math.sin(a) * 1.6 * s, 2.1 * s, 1.4 * s, a, 0, U.TAU); g.fill();
+      }
+      g.fillStyle = U.rgba(kind === 'yellow' ? '#9a5a14' : '#8a5a2a', 0.85); g.beginPath(); g.arc(fx, fy, 1 * s, 0, U.TAU); g.fill();
     }
   }
-  Art.flowerCluster = flowerCluster;
+  Art.wildFlower = wildFlower;
+
+  // Mata de hierba: unas pinceladas curvas desde la base.
+  function tuft(g, x, y, h, rng, cols = GRASS) {
+    const n = rng.int(5, 9);
+    g.lineCap = 'round';
+    for (let i = 0; i < n; i++) {
+      const lean = rng.range(-0.55, 0.55), hh = h * rng.range(0.55, 1.1);
+      g.strokeStyle = rng.pick(cols);
+      g.globalAlpha = rng.range(0.5, 0.85);
+      g.lineWidth = rng.range(1, 2.2) * U.clamp(h / 16, 1, 1.7);
+      const bx = x + rng.range(-h * 0.3, h * 0.3);
+      g.beginPath(); g.moveTo(bx, y); g.quadraticCurveTo(bx + lean * hh * 0.25, y - hh * 0.6, bx + lean * hh, y - hh); g.stroke();
+    }
+    g.globalAlpha = 1;
+  }
+  Art.tuft = tuft;
 
   function bush(g, x, y, r, rng, seed, kind) {
-    const cols = kind === 'broom' ? [C.leaf, C.leafDeep, '#8c8d4f'] : kind === 'lavender' ? ['#8a9774', '#6f7c5c', '#a5ae8a'] : [C.leaf, C.leafDeep, C.leafLit];
-    Paint.shade(g, U.blobPoly(x, y + 2, r * 1.1, r * 0.2, 10, rng, 0.2), '#4d4630', { layers: 2, alpha: 0.25, amp: 1, seed: seed + 1, edge: 0 });
-    Art.leafMass(g, x, y - r * 0.55, r, r * 0.55, rng, Math.round(r * 1.5), cols, seed);
+    const cols = kind === 'broom' ? [C.leaf, C.leafDeep, '#8c7d3e', C.leafMid] : kind === 'lavender' ? ['#7d7c58', '#625f44', '#9a9670'] : [C.leaf, C.leafDeep, C.leafLit, C.leafMid];
+    Paint.shade(g, U.blobPoly(x, y + 2, r * 1.1, r * 0.2, 10, rng, 0.2), '#3e2f14', { layers: 2, alpha: 0.28, amp: 1, seed: seed + 1, edge: 0 });
+    Art.leafMass(g, x, y - r * 0.55, r, r * 0.55, rng, Math.round(r * 1.6), cols, seed);
     if (kind === 'broom') for (let i = 0; i < r * 1.2; i++) Paint.softBlob(g, x + rng.range(-r, r), y - r * 0.55 + rng.range(-r * 0.5, r * 0.4), rng.range(1.6, 2.6), '#f4c83f', 0.9);
     if (kind === 'lavender') for (let i = 0; i < r * 0.8; i++) { const fx = x + rng.range(-r, r), fy = y - r * 0.8 + rng.range(-r * 0.3, r * 0.3); Paint.ink(g, [[fx, fy + 6], [fx, fy - 4]], { w: 2.2, alpha: 0.75, color: '#a493c4', seed: seed + 50 + i }); }
   }
   Art.bush = bush;
 
-  function fence(g, x0, x1, gyF, rng, seed) {
+  // Cerca de troncos: postes en posiciones fijas del mundo (cada 62 u) y dos travesaños.
+  function fence(g, fa, fb, xa, xb, gyF, seed) {
     const posts = [];
-    for (let x = x0; x <= x1; x += rng.range(56, 70)) posts.push(x);
+    for (let x = fa; x <= fb; x += 62) {
+      const r = U.makeRng(seed + Math.round(x));
+      posts.push([x + r.range(-4, 4), r]);
+    }
     const top = (x) => gyF(x) - 52, mid = (x) => gyF(x) - 30;
-    for (const [i, rail] of [[0, top], [1, mid]]) {
-      const pts = posts.map((x) => [x, rail(x) + rng.range(-1.5, 1.5)]);
-      for (let k = 0; k < pts.length - 1; k++) {
-        const a = pts[k], b = pts[k + 1];
-        const poly = [[a[0], a[1] - 2.6], [b[0], b[1] - 2.6], [b[0], b[1] + 2.6], [a[0], a[1] + 2.6]];
-        Paint.wash(g, poly, rng.pick(['#9e8a6c', '#8c7759', '#a89474']), { layers: 2, alpha: 0.85, amp: 0.3, seed: seed + i * 100 + k, edge: 0.3, core: 1 });
-        Paint.ink(g, [a, b].map(([x, y]) => [x, y + 2.6]), { w: 0.9, alpha: 0.5, seed: seed + 200 + i * 100 + k, color: C.woodShade });
+    for (let k = 0; k < posts.length - 1; k++) {
+      const [a, ra] = posts[k], [b] = posts[k + 1];
+      if (b < xa - 80 || a > xb + 80) continue;
+      for (const [i, rail] of [[0, top], [1, mid]]) {
+        const ya = rail(a) + ra.range(-1.5, 1.5), yb = rail(b) + ra.range(-1.5, 1.5);
+        const poly = [[a, ya - 2.6], [b, yb - 2.6], [b, yb + 2.6], [a, ya + 2.6]];
+        Paint.wash(g, poly, ra.pick(['#9a7a4c', '#8a6c42', '#a8875a']), { layers: 2, alpha: 0.88, amp: 0.3, seed: seed + i * 100 + k, edge: 0.3, core: 1 });
+        Paint.ink(g, [[a, ya + 2.6], [b, yb + 2.6]], { w: 0.9, alpha: 0.5, seed: seed + 200 + i * 100 + k, color: C.woodShade });
       }
     }
-    for (const x of posts) {
+    for (const [x, r] of posts) {
+      if (x < xa - 20 || x > xb + 20) continue;
       const y = gyF(x);
       const poly = [[x - 3.6, y + 2], [x - 3, top(x) - 8], [x + 3.4, top(x) - 9], [x + 3.8, y + 2]];
-      Paint.wash(g, poly, rng.pick(['#8f7a5c', '#7d6a50']), { layers: 3, alpha: 0.9, amp: 0.3, seed: seed + 400 + x, edge: 0.3, core: 1 });
-      Paint.ink(g, poly, { closed: true, w: 1, alpha: 0.6, seed: seed + 500 + x, color: '#4a3826', breaks: 0.2 });
+      Paint.wash(g, poly, r.pick(['#8a6a40', '#7a5c36']), { layers: 3, alpha: 0.92, amp: 0.3, seed: seed + 400 + Math.round(x), edge: 0.3, core: 1 });
+      Paint.ink(g, poly, { closed: true, w: 1, alpha: 0.62, seed: seed + 500 + Math.round(x), color: '#4a3220', breaks: 0.2 });
     }
   }
 
@@ -230,23 +294,42 @@
   }
 
   // ------------------------------------------------------------------ suelo
+  // Tramos de 1400 u que se solapan 120 u: cada tramo funde su borde izquierdo sobre el anterior
+  // (que debajo está entero) y todo lo que pinta está anclado al mundo, así no hay costuras.
   Art.paintPlay = function (layer, L, life) {
-    const rng = U.makeRng(4401);
     const BOTTOM = L.bottom;
+    const BW = 1400, OV = 120;
     L.ground.forEach((seg, idx) => {
       const first = seg[0], last = seg[seg.length - 1];
       const x0 = Math.max(first[0], layer.x0), x1 = Math.min(last[0], layer.x1);
-      for (let bx = x0; bx < x1; bx += 1600) {
-        const bw = Math.min(1600, x1 - bx);
-        const ys = seg.filter(([x]) => x >= bx - 200 && x <= bx + bw + 200).map((p) => p[1]);
-        const top = Math.min(...ys, L.gy(bx), L.gy(bx + bw)) - 140;
-        JHS.Layers.paintOnce(layer, { x: bx - 60, y: top, w: bw + 120, h: BOTTOM - top + 20 }, (g) => paintGroundBlock(g, L, seg, idx, bx - 60, bx + bw + 60, BOTTOM, rng), POST);
+      for (let bx = x0; bx < x1; bx += BW) {
+        const lead = bx > x0;
+        const left = lead ? bx - OV : bx - 40, right = Math.min(bx + BW + 20, x1 + 40);
+        let top = Infinity;
+        for (let x = left; x <= right; x += 20) top = Math.min(top, L.gy(U.clamp(x, first[0], last[0])));
+        top -= 150;
+        const box = { x: left, y: top, w: right - left, h: BOTTOM - top + 20 };
+        JHS.Layers.paintOnce(layer, box, (g) => {
+          paintGroundBlock(g, L, seg, left, right, BOTTOM);
+          if (lead) {
+            g.save();
+            g.globalCompositeOperation = 'destination-out';
+            const gr = g.createLinearGradient(left, 0, bx - 20, 0);
+            gr.addColorStop(0, 'rgba(0,0,0,1)');
+            gr.addColorStop(1, 'rgba(0,0,0,0)');
+            g.fillStyle = gr;
+            g.fillRect(left - 2, top - 2, bx - 20 - left + 2, box.h + 4);
+            g.restore();
+          }
+        }, POST);
       }
     });
     // el arroyo bajo el puente
     const gap = L.gaps[0];
-    JHS.Layers.paintOnce(layer, { x: gap.x0 - 90, y: L.gy(gap.x0) - 90, w: gap.x1 - gap.x0 + 180, h: BOTTOM - L.gy(gap.x0) + 110 }, (g) => paintStream(g, L, gap, rng, life), { edge: 0.3, grain: 0.2, density: 0.06 });
+    const yb = L.gy(gap.x0);
+    JHS.Layers.paintOnce(layer, { x: gap.x0 - 140, y: yb - 120, w: gap.x1 - gap.x0 + 280, h: BOTTOM - yb + 140 }, (g) => paintStream(g, L, gap, life), { edge: 0.3, grain: 0.2, density: 0.06 });
     // objetos con contacto legible
+    const rng = U.makeRng(4401);
     const props = (box, fn) => JHS.Layers.paintOnce(layer, box, fn, POST);
     const sh = L.ledges[0];
     props({ x: sh.x0 - 40, y: sh.y - 30, w: sh.x1 - sh.x0 + 80, h: L.gy(sh.x1) - sh.y + 50 }, (g) => woodshed(g, sh.x0, sh.x1, L.gy((sh.x0 + sh.x1) / 2), L, rng));
@@ -256,7 +339,7 @@
         const base = r.y + r.h;
         if (r.kind === 'barrel') {
           const poly = U.spline([[r.x, base], [r.x - 3, base - r.h * 0.5], [r.x + 2, base - r.h], [r.x + r.w - 2, base - r.h], [r.x + r.w + 3, base - r.h * 0.5], [r.x + r.w, base]], 3, true);
-          Paint.shade(g, U.blobPoly(r.x + r.w / 2 + 4, base + 1, r.w * 0.7, 5, 10, rng, 0.2), '#4d3e30', { layers: 2, alpha: 0.3, amp: 1, seed: 4501, edge: 0 });
+          Paint.shade(g, U.blobPoly(r.x + r.w / 2 + 4, base + 1, r.w * 0.7, 5, 10, rng, 0.2), '#3e2a12', { layers: 2, alpha: 0.32, amp: 1, seed: 4501, edge: 0 });
           Paint.wash(g, poly, '#9b6b38', { layers: 4, alpha: 0.8, amp: 0.3, seed: 4502, edge: 0.3, core: 1, vary: '#7d5328', varyAmt: 0.5 });
           Paint.within(g, poly, () => Paint.wash(g, [[r.x + r.w * 0.6, base - r.h], [r.x + r.w, base - r.h], [r.x + r.w, base], [r.x + r.w * 0.7, base]], '#d5a465', { layers: 2, alpha: 0.3, amp: 0.3, seed: 4503, edge: 0 }));
           for (const hy of [base - 8, base - r.h + 8]) Paint.ink(g, [[r.x - 2, hy], [r.x + r.w + 2, hy]], { w: 1.8, alpha: 0.7, color: '#3c2a1e', seed: 4504 + hy });
@@ -268,9 +351,27 @@
         else boulder(g, r.x + r.w / 2, base, r.w / 2 + 6, r.h / 1.7, rng, 4550 + r.x);
       });
     }
-    // tronco caído sobre dos piedras (repisa de un solo sentido)
+    // tronco atravesado sobre dos pilas de piedra seca (repisa de un solo sentido): las pilas
+    // bajan hasta el suelo, así el apoyo se lee
     const lg = L.ledges[1];
-    props({ x: lg.x0 - 40, y: lg.y - 40, w: lg.x1 - lg.x0 + 80, h: L.gy(lg.x1) - lg.y + 60 }, (g) => {
+    props({ x: lg.x0 - 60, y: lg.y - 40, w: lg.x1 - lg.x0 + 120, h: Math.max(L.gy(lg.x0), L.gy(lg.x1 - 1)) - lg.y + 70 }, (g) => {
+      for (const px of [lg.x0 + 26, lg.x1 - 30]) {
+        const base = L.gy(px) + 4, r2 = U.makeRng(8800 + px);
+        for (let y = base, k = 0; y > lg.y + 24; k++) {
+          const h = Math.min(r2.range(16, 22), y - lg.y - 20), w = r2.range(34, 46) - k * 1.5;
+          const sx = px + r2.range(-4, 4) - w / 2;
+          const poly = Props.smoothBlob(sx + w / 2, y - h / 2, w / 2, h / 2, 9, r2, 0.12, 0.6);
+          Paint.wash(g, poly, r2.pick(['#b59a76', '#a48868', '#c2a882', '#9a7f60']), { layers: 3, alpha: 0.9, amp: 0.4, seed: 8810 + px + k, edge: 0.3, core: 1 });
+          Paint.within(g, poly, () => {
+            Paint.wash(g, [[sx, y - h - 2], [sx + w, y - h - 2], [sx + w, y - h * 0.65], [sx, y - h * 0.7]], '#e4c896', { layers: 2, alpha: 0.4, amp: 1, seed: 8820 + px + k, edge: 0 });
+            Paint.shade(g, [[sx, y - h * 0.4], [sx + w, y - h * 0.45], [sx + w, y + 2], [sx, y + 2]], '#5c4126', { layers: 2, alpha: 0.3, amp: 1, seed: 8830 + px + k, edge: 0 });
+          });
+          Paint.ink(g, poly, { closed: true, w: 1.2, alpha: 0.6, color: '#4a3220', seed: 8840 + px + k, breaks: 0.25 });
+          y -= h + 0.5;
+        }
+        tuft(g, px - 18, base, 14, r2);
+        tuft(g, px + 16, base + 1, 12, r2);
+      }
       const o = JHS.Objects.log(lg.x1 - lg.x0);
       g.drawImage(o.c, lg.x0 - o.ox, lg.y + 14 - o.oy, o.w, o.h);
     });
@@ -278,141 +379,355 @@
     for (const sg of L.signs) props({ x: sg.x - 90, y: L.gy(sg.x) - 170, w: 180, h: 190 }, (g) => signpost(g, sg.x, L.gy(sg.x), rng));
   };
 
-  // Un tramo de suelo: camino claro de tierra pisada, verde detrás con arbustos, cerca y acequia
-  // (capa 3) y, por delante, la ladera de césped con flores y piedras redondas.
-  function paintGroundBlock(g, L, seg, idx, xa, xb, BOTTOM, rng) {
-    const S = (x) => L.gy(x);
-    const pts = [];
-    for (let x = xa; x <= xb; x += 12) {
-      const cx = U.clamp(x, seg[0][0], seg[seg.length - 1][0]);
-      pts.push([x, S(cx)]);
+  // y del camino dentro de un tramo continuo (sin escalones)
+  function runY(run, x) {
+    if (x <= run[0][0]) return run[0][1];
+    for (let i = 1; i < run.length; i++) {
+      const a = run[i - 1], b = run[i];
+      if (x <= b[0]) return U.lerp(a[1], b[1], (x - a[0]) / (b[0] - a[0]));
     }
-    const inSeg = (x) => x >= seg[0][0] - 1 && x <= seg[seg.length - 1][0] + 1;
-    // ladera de delante
-    const bank = pts.map(([x, y]) => [x, y + 14]).concat([[xb, BOTTOM + 10], [xa, BOTTOM + 10]]);
-    Paint.wash(g, bank, '#8f8c4f', { layers: 4, alpha: 0.55, amp: 3, seed: 4601 + idx, edge: 0.1, core: 1, vary: '#7b7a43', varyAmt: 0.5 });
-    Paint.within(g, bank, () => {
-      Paint.wash(g, pts.map(([x, y]) => [x, y + 12]).concat(pts.slice().reverse().map(([x, y]) => [x, y + 70])), '#b5ad62', { layers: 4, alpha: 0.35, amp: 8, seed: 4602 + idx, edge: 0 });
-      Paint.shade(g, pts.map(([x, y]) => [x, y + 140]).concat([[xb, BOTTOM + 10], [xa, BOTTOM + 10]]), '#4f5432', { layers: 4, alpha: 0.2, amp: 20, seed: 4603 + idx, edge: 0 });
-      // matas de hierba a grandes manchas (baja frecuencia)
-      for (let i = 0; i < (xb - xa) / 22; i++) {
-        const x = rng.range(xa, xb), y = S(U.clamp(x, seg[0][0], seg[seg.length - 1][0])) + rng.range(30, BOTTOM - 700);
-        Paint.wash(g, U.blobPoly(x, y, rng.range(20, 60), rng.range(8, 18), 10, rng, 0.35), rng.pick(['#a5a058', '#88884a', '#c1b66a', '#6f7240', '#9aa060']), { layers: 2, alpha: 0.3, amp: 3, seed: 4610 + idx * 997 + i, edge: 0.1 });
-      }
-      // piedras redondas medio enterradas en la ladera
-      for (let i = 0; i < (xb - xa) / 130; i++) {
-        const x = rng.range(xa + 40, xb - 40);
-        if (!inSeg(x)) continue;
-        const y = S(x) + rng.range(60, 260), r = rng.range(16, 46);
-        boulder(g, x, y, r, r * rng.range(0.55, 0.7), rng, 4700 + idx * 991 + i);
-      }
-      // flores en la ladera (más abajo, más grandes)
-      for (let i = 0; i < (xb - xa) / 46; i++) {
-        const x = rng.range(xa, xb);
-        if (!inSeg(x)) continue;
-        flowerCluster(g, x, S(x) + rng.range(40, 230), rng.int(2, 5), rng, 4800 + idx * 983 + i);
-      }
-    });
-    // camino de tierra clara: banda ancha y tranquila, con piedras planas de poco contraste
-    const runs = JHS.Scenery.surfaceRuns(seg);
-    for (const run of runs) {
-      const rpts = U.resample(run, 12).filter(([x]) => x >= xa - 12 && x <= xb + 12);
-      if (rpts.length < 2) continue;
-      const top = rpts.map(([x, y]) => [x, y - 16 + Math.sin(x * 0.02) * 1.5]);
-      const bot = rpts.map(([x, y]) => [x, y + 18 + Math.sin(x * 0.013 + 1) * 2]).reverse();
-      const band = top.concat(bot);
-      Paint.wash(g, band, C.path, { layers: 4, alpha: 0.6, amp: 1.5, seed: 4901 + idx, edge: 0.1, core: 1, vary: '#ead0a0', varyAmt: 0.5 });
-      Paint.within(g, band, () => {
-        Paint.shade(g, rpts.map(([x, y]) => [x, y + 8]).concat(bot), C.pathShade, { layers: 3, alpha: 0.18, amp: 3, seed: 4902 + idx, edge: 0 });
-        for (let i = 0; i < rpts.length / 4; i++) {
-          const [x, y] = rpts[Math.floor(rng.next() * rpts.length)];
-          Paint.wash(g, U.blobPoly(x + rng.range(-6, 6), y + rng.range(-8, 12), rng.range(6, 14), rng.range(2.5, 4.5), 8, rng, 0.25), rng.pick(['#e3c895', '#f6e4bb', '#d8bd8a']), { layers: 2, alpha: 0.4, amp: 0.4, seed: 4910 + idx * 991 + i, edge: 0.15 });
-        }
-      });
-      // borde de delante del camino: línea clara de tinta y hierba que cuelga
-      Paint.ink(g, rpts.map(([x, y]) => [x, y + 18]), { w: 1.6, alpha: 0.5, color: '#7a5f3c', seed: 4920 + idx, breaks: 0.3, sketch: 0.4 });
-      kit().grassFringe(g, rpts.map(([x, y]) => [x, y + 20]), U.makeRng(4921 + idx), 0.45);
-      // borde de detrás: la tinta del borde superior del suelo, clara y continua
-      Paint.ink(g, top, { w: 2.2, alpha: 0.7, color: '#6a4e30', seed: 4922 + idx, breaks: 0.12, sketch: 0.5, bleed: 0.6 });
-    }
-    // capa 3 detrás del camino: hierba alta, arbustos, cercas y acequia
-    const backY = (x) => S(x) - 16;
-    for (let x = xa; x < xb; x += rng.range(110, 190)) {
-      if (!inSeg(x) || (x > 1860 && x < 2240)) continue;
-      const kind = x < 1600 ? rng.pick(['lavender', 'round', 'broom']) : x > 5000 ? rng.pick(['broom', 'round']) : rng.pick(['round', 'broom', 'lavender']);
-      bush(g, x, backY(x) + 2, rng.range(18, 34), rng, 5000 + Math.round(x), kind);
-    }
-    for (const [fa, fb2] of [[2300, 2620], [3360, 4660], [7800, 8240]]) {
-      const a = Math.max(fa, xa), b = Math.min(fb2, xb);
-      if (b - a > 40) fence(g, a, b, (x) => backY(x), rng, 5100 + Math.round(a));
-    }
-    // lecho de la acequia (el agua es una capa de estado)
-    const ca = Math.max(L.canal[0], xa), cb = Math.min(L.canal[1], xb);
-    if (cb - ca > 20) {
-      const cpts = [];
-      for (let x = ca; x <= cb; x += 12) cpts.push([x, backY(x) - 6]);
-      const bed = cpts.map(([x, y]) => [x, y - 5]).concat(cpts.slice().reverse().map(([x, y]) => [x, y + 6]));
-      Paint.wash(g, bed, '#9a7f5e', { layers: 3, alpha: 0.75, amp: 0.4, seed: 5200 + idx, edge: 0.25, core: 1 });
-      Paint.within(g, bed, () => {
-        for (let x = ca; x < cb; x += 9) { g.strokeStyle = U.rgba('#6e573f', 0.5); g.lineWidth = 0.6; g.beginPath(); g.moveTo(x, backY(x) - 9); g.lineTo(x + rng.range(-3, 3), backY(x) - 3); g.stroke(); }
-      });
-      // piedras del borde delantero de la acequia
-      for (let x = ca; x < cb; x += rng.range(14, 22)) Paint.wash(g, U.blobPoly(x, backY(x) + 1, rng.range(6, 10), rng.range(3, 4.5), 8, rng, 0.2), rng.pick(['#c2b39f', '#ab9c88', '#d1c3ae']), { layers: 2, alpha: 0.9, amp: 0.3, seed: 5210 + Math.round(x), edge: 0.35, core: 1 });
-    }
-    kit().grassFringe(g, pts.filter(([x]) => inSeg(x)).map(([x, y]) => [x, y - 16]), U.makeRng(5300 + idx), 0.5);
+    return run[run.length - 1][1];
   }
 
-  // El arroyo: estribos de piedra seca a cada lado, el agua que viene del fondo hacia nosotros
-  // entre orillas de piedras redondas, un caballete de madera bajo el puente y saltitos de agua.
-  function paintStream(g, L, gap, rng, life) {
-    const yb = L.gy(gap.x0), x0 = gap.x0, x1 = gap.x1, cx = (x0 + x1) / 2;
-    const yw = yb + 182;
-    // lecho y agua que se ensancha hacia delante
-    const water = [[cx - 40, yb - 40], [cx + 40, yb - 40], [x1 - 6, yw + 40], [x1 - 6, L.bottom], [x0 + 6, L.bottom], [x0 + 6, yw + 40]];
-    Paint.wash(g, water, C.water, { layers: 4, alpha: 0.8, amp: 2, seed: 5401, edge: 0.25, core: 1, vary: C.waterDeep, varyAmt: 0.5 });
-    Paint.within(g, water, () => {
-      const gr = g.createLinearGradient(0, yb - 40, 0, yw + 80);
-      gr.addColorStop(0, 'rgba(240,233,218,0.6)');
-      gr.addColorStop(1, 'rgba(240,233,218,0)');
-      g.fillStyle = gr; g.fillRect(x0, yb - 40, x1 - x0, yw + 80 - yb + 40);
-      Paint.shade(g, [[x0, yw + 60], [x1, yw + 60], [x1, L.bottom], [x0, L.bottom]], '#5f7478', { layers: 3, alpha: 0.18, amp: 6, seed: 5402, edge: 0 });
+  // Un tramo de suelo (capas 2 y 3 de la ficha). Detrás del camino: arbustos, cercas y acequia.
+  // El camino: banda de tierra miel de textura ancha y tranquila (detrás de pies y pezuñas no hay
+  // ruido) con su borde superior entintado. Delante: la ladera que baja hacia nosotros (lo de abajo
+  // está más cerca: matas, flores y piedras más grandes), oliva y ocre como en el concepto.
+  function paintGroundBlock(g, L, seg, xa, xb, BOTTOM) {
+    const segX0 = seg[0][0], segX1 = seg[seg.length - 1][0];
+    const S = (x) => L.gy(U.clamp(x, segX0, segX1));
+    const inSeg = (x) => x >= segX0 && x <= segX1;
+    const ca = Math.max(xa, segX0), cb = Math.min(xb, segX1);
+    if (cb - ca < 4) return;
+    const runs = JHS.Scenery.surfaceRuns(seg);
+
+    // ---- capa 3, detrás del camino: hierba, arbustos, cercas y el lecho de la acequia
+    const backY = (x) => S(x) - 16;
+    cells(ca, cb, 150, 31, (r, cx) => {
+      const x = cx + r.range(0, 150);
+      if (!inSeg(x) || (x > 1840 && x < 2260) || r.chance(0.2)) return;
+      const kind = x < 1600 ? r.pick(['lavender', 'round', 'broom']) : x > 5000 ? r.pick(['broom', 'round']) : r.pick(['round', 'broom', 'lavender']);
+      bush(g, x, backY(x) + 2, r.range(18, 34), r, r.int(1, 1e6), kind);
     });
-    // orillas: piedras redondas que bajan hacia nosotros
-    for (const side of [-1, 1]) {
-      for (let t = 0; t <= 1.001; t += 0.07) {
-        const y = U.lerp(yb - 30, L.bottom - 20, t);
-        const x = U.lerp(cx + side * 46, side < 0 ? x0 + 10 : x1 - 10, Math.min(1, t * 1.4));
-        const r = U.lerp(6, 26, t) * rng.range(0.7, 1.2);
-        boulder(g, x + side * rng.range(0, 14), y, r, r * 0.6, rng, 5410 + Math.round(t * 100) + side * 7);
-      }
+    for (const [fa, fb] of [[2300, 2620], [3360, 4660], [7800, 8240]]) {
+      if (fb < ca - 80 || fa > cb + 80 || !inSeg(fa)) continue;
+      fence(g, fa, fb, ca, cb, backY, 5100 + fa);
     }
-    // piedras en el cauce donde el agua salta hacia delante
-    const steps = [[cx - 60, yw + 92, 24], [cx + 40, yw + 96, 22], [cx - 10, yw + 150, 30], [cx + 86, yw + 150, 18], [cx - 100, yw + 156, 16]];
-    for (const [x, y, r] of steps) boulder(g, x, y, r, r * 0.55, rng, 5500 + Math.round(x));
-    if (life) {
-      for (const [x, y, w] of [[cx - 22, yw + 76, 26], [cx + 70, yw + 82, 16], [cx + 14, yw + 134, 30]]) {
-        life.falls.push({ x, top: y, bottom: y + 46, w0: w * 0.8, w1: w, k: 0.85, layer: 'play', scale: 0.5, fade: 60, mist: 0 });
-      }
-      life.stream = { x0: x0 + 20, x1: x1 - 20, y0: yb - 30, y1: L.bottom, cx };
+    const cA = Math.max(L.canal[0], ca), cB = Math.min(L.canal[1], cb);
+    if (cB - cA > 20 && inSeg(cA)) {
+      const xs = [];
+      for (let x = cA; x < cB; x += 10) xs.push(x);
+      xs.push(cB);
+      const bed = xs.map((x) => [x, backY(x) - 12]).concat(xs.slice().reverse().map((x) => [x, backY(x) + 1]));
+      Paint.within(g, bed, () => {
+        for (let i = 0; i < xs.length - 1; i++) {
+          const y = backY(xs[i]);
+          const gr = g.createLinearGradient(0, y - 12, 0, y + 1);
+          gr.addColorStop(0, '#6e5638'); gr.addColorStop(1, '#977a54');
+          g.fillStyle = gr; g.fillRect(xs[i] - 0.3, y - 14, xs[i + 1] - xs[i] + 0.6, 16);
+        }
+      });
+      cells(cA, cB, 15, 41, (r, cx) => {
+        const x = cx + r.range(0, 15);
+        if (x < L.canal[0] || x > L.canal[1]) return;
+        Paint.wash(g, U.blobPoly(x, backY(x) + 1, r.range(6, 10), r.range(3, 4.5), 8, r, 0.2), r.pick(['#b59f82', '#a08a6e', '#c4ae90']), { layers: 2, alpha: 0.9, amp: 0.3, seed: r.int(1, 1e6), edge: 0.35, core: 1 });
+      });
     }
-    // caballete central bajo el puente
-    for (const px of [cx - 8, cx + 8]) Paint.wash(g, [[px - 4, yb + 10], [px + 4, yb + 10], [px + 5, yw + 70], [px - 5, yw + 70]], C.woodShade, { layers: 3, alpha: 0.9, amp: 0.3, seed: 5600 + px, edge: 0.3, core: 1 });
-    Paint.ink(g, [[cx - 40, yb + 60], [cx + 40, yb + 30]], { w: 4, alpha: 0.75, color: C.woodShade, seed: 5602 });
-    Paint.ink(g, [[cx - 40, yb + 30], [cx + 40, yb + 60]], { w: 4, alpha: 0.75, color: C.woodShade, seed: 5603 });
-    // estribos de piedra seca
-    for (const [ax, dir] of [[x0, -1], [x1, 1]]) {
-      const xf = ax + dir * 6;
-      for (let row = 0; row < 9; row++) {
-        const y = yb + 4 + row * 22;
+    for (const run of runs) {
+      const r0 = run[0][0], r1 = run[run.length - 1][0];
+      fringe(g, (x) => runY(run, x) - 15, ca, cb, r0, r1, 0.5, 5300, GRASS);
+    }
+
+    // ---- la ladera de delante
+    const edgeY = (x) => S(x) + 15 + (U.noise1(x * 0.018, 77) - 0.5) * 4;
+    const pts = [];
+    for (let x = ca; x < cb; x += 8) pts.push([x, edgeY(x)]);
+    pts.push([cb, edgeY(cb)]);
+    const bank = pts.concat([[cb, BOTTOM + 10], [ca, BOTTOM + 10]]);
+    Paint.within(g, bank, () => {
+      // degradado que sigue el suelo, en franjas de 24 u ancladas al mundo
+      for (let x = Math.floor(ca / 24) * 24; x < cb; x += 24) {
+        const y0 = S(x + 12);
+        const gr = g.createLinearGradient(0, y0, 0, y0 + 640);
+        gr.addColorStop(0, '#a48a4a');
+        gr.addColorStop(0.06, '#93793f');
+        gr.addColorStop(0.2, '#7c6632');
+        gr.addColorStop(0.42, '#665428');
+        gr.addColorStop(0.7, '#524320');
+        gr.addColorStop(1, '#45381a');
+        g.fillStyle = gr;
+        g.fillRect(x - 0.5, y0 - 10, 25, BOTTOM - y0 + 40);
+      }
+      // manchas anchas de hierba, tierra y salvia (baja frecuencia)
+      cells(ca, cb, 70, 11, (r, cx) => {
+        const x = cx + r.range(0, 70);
+        if (!inSeg(x)) return;
+        const d = 24 + Math.pow(r.next(), 1.2) * 560, s = 0.7 + d / 300;
+        Paint.wash(g, U.blobPoly(x, S(x) + d, r.range(40, 110) * s, r.range(10, 26) * s, 10, r, 0.35), r.pick(['#a98d4c', '#8e7a3c', '#9a9156', '#7a6530', '#b49a55', '#6f6a3a']), { layers: 2, alpha: r.range(0.16, 0.28), amp: 3, seed: r.int(1, 1e6), edge: 0.06 });
+      });
+      // la sombra corta bajo el borde del camino
+      const lip = pts.map(([x, y]) => [x, y - 3]).concat(pts.slice().reverse().map(([x, y]) => [x, y + 24 + (U.noise1(x * 0.03, 5) - 0.5) * 12]));
+      Paint.shade(g, lip, '#4e3d17', { layers: 2, alpha: 0.18, amp: 0, seed: 4605, edge: 0 });
+      // piedras redondas medio enterradas, en grupos (por detrás de la hierba y las flores)
+      cells(ca, cb, 280, 14, (r, cx) => {
+        if (r.chance(0.3)) return;
+        const xc = cx + r.range(20, 260);
+        if (!inSeg(xc - 60) || !inSeg(xc + 60)) return;
+        const d0 = 70 + Math.pow(r.next(), 1.2) * 360;
+        const n = r.int(1, 3);
+        for (let k = 0; k < n; k++) {
+          const x = xc + (k ? (k % 2 ? 1 : -1) * r.range(36, 64) : 0), d = d0 + r.range(-10, 22) * k;
+          const s = 0.75 + d / 260, rad = r.range(18, 40) * s;
+          boulder(g, x, S(x) + d, rad, rad * r.range(0.55, 0.68), r, r.int(1, 1e6));
+        }
+      });
+      // luz de miel sobre la hierba alta (manchas anchas, sin bordes)
+      cells(ca, cb, 220, 15, (r, cx) => {
+        const x = cx + r.range(0, 220);
+        if (!inSeg(x)) return;
+        const d = 30 + r.next() * 260;
+        Paint.wash(g, U.blobPoly(x, S(x) + d, r.range(90, 170), r.range(16, 34), 12, r, 0.35), '#d2ac5c', { layers: 3, alpha: 0.14, amp: 6, seed: r.int(1, 1e6), edge: 0 });
+      });
+      // hierba en corros: la densidad sube y baja con un ruido del mundo (claros y matas);
+      // más grande cuanto más abajo (más cerca); las puntas al sol, color miel
+      cells(ca, cb, 9, 12, (r, cx) => {
+        const x = cx + r.range(0, 9);
+        if (!inSeg(x)) return;
         for (let k = 0; k < 3; k++) {
-          const sx = xf + dir * (k * 30 + (row % 2) * 14) - (dir > 0 ? 0 : 30);
-          const poly = Props.smoothBlob(sx + 15, y + 10, rng.range(13, 17), rng.range(9, 12), 9, rng, 0.15, 0.7);
-          Paint.wash(g, poly, rng.pick(['#b5a690', '#a3947f', '#c4b49c']), { layers: 3, alpha: 0.85, amp: 0.3, seed: 5700 + row * 10 + k + dir, edge: 0.3, core: 1 });
-          Paint.within(g, poly, () => Paint.shade(g, [[sx - 4, y + 10], [sx + 34, y + 10], [sx + 34, y + 26], [sx - 4, y + 26]], '#6b5a48', { layers: 2, alpha: 0.25, amp: 1, seed: 5800 + row * 10 + k, edge: 0 }));
-          Paint.ink(g, poly, { closed: true, w: 1.1, alpha: 0.55, seed: 5900 + row * 10 + k + dir, breaks: 0.25 });
+          const d = 22 + Math.pow(r.next(), 1.35) * 560, jx = r.range(-4, 4), sd = r.int(1, 1e6);
+          const dens = U.noise2(x * 0.011, d * 0.018, 3);
+          if (dens < 0.4) continue;
+          const s = 0.75 + d / 230;
+          tuft(g, x + jx, S(x) + d, 11 * s * (0.7 + dens * 0.6), U.makeRng(sd), dens > 0.64 ? GRASS_LIT : GRASS);
+        }
+      });
+      // flores silvestres en corros: amarillas y blancas, alguna rosa o lila
+      cells(ca, cb, 95, 13, (r, cx) => {
+        const x0 = cx + r.range(0, 95);
+        const d0 = 30 + Math.pow(r.next(), 1.25) * 460;
+        const n = r.int(8, 22);
+        for (let k = 0; k < n; k++) {
+          const x = x0 + r.gauss() * 30, d = Math.max(24, d0 + r.gauss() * 16);
+          const kind = r.chance(0.45) ? 'yellow' : r.chance(0.75) ? 'daisy' : r.chance(0.6) ? 'pink' : 'lilac';
+          const sd = r.int(1, 1e6);
+          if (!inSeg(x)) continue;
+          wildFlower(g, x, S(x) + d, kind, 0.85 + d / 200, U.makeRng(sd), sd);
+        }
+      });
+      // y flores sueltas entre los corros
+      cells(ca, cb, 26, 16, (r, cx) => {
+        const x = cx + r.range(0, 26), d = 26 + Math.pow(r.next(), 1.2) * 520, sd = r.int(1, 1e6);
+        if (!inSeg(x) || !r.chance(0.55)) return;
+        wildFlower(g, x, S(x) + d, r.chance(0.5) ? 'yellow' : 'daisy', 0.85 + d / 200, U.makeRng(sd), sd);
+      });
+    });
+
+    // ---- el camino de tierra miel
+    for (const run of runs) {
+      const r0 = run[0][0], r1 = run[run.length - 1][0];
+      const a = Math.max(xa - 10, r0), b = Math.min(xb + 10, r1);
+      if (b - a < 4) continue;
+      const SY = (x) => runY(run, x);
+      const topY = (x) => SY(x) - 16 + (U.noise1(x * 0.02, 31) - 0.5) * 3;
+      const botY = (x) => SY(x) + 15 + (U.noise1(x * 0.018, 77) - 0.5) * 4;
+      const xs = [];
+      for (let x = a; x < b; x += 8) xs.push(x);
+      xs.push(b);
+      const band = xs.map((x) => [x, topY(x)]).concat(xs.slice().reverse().map((x) => [x, botY(x)]));
+      Paint.within(g, band, () => {
+        for (let i = 0; i < xs.length - 1; i++) {
+          const y = SY(xs[i] + 4);
+          const gr = g.createLinearGradient(0, y - 17, 0, y + 17);
+          gr.addColorStop(0, '#c99a58'); gr.addColorStop(0.3, '#eabd7a'); gr.addColorStop(0.55, '#f1c886'); gr.addColorStop(0.8, '#ddb06c'); gr.addColorStop(1, '#bb8c4c');
+          g.fillStyle = gr; g.fillRect(xs[i] - 0.3, y - 22, xs[i + 1] - xs[i] + 0.6, 44);
+        }
+        // manchas anchas: miel clara y tostada
+        cells(a, b, 60, 21, (r, cx) => {
+          const x = cx + r.range(0, 60);
+          if (x < r0 || x > r1) return;
+          Paint.wash(g, U.blobPoly(x, SY(x) + r.range(-8, 10), r.range(18, 44), r.range(3, 6), 10, r, 0.3), r.pick(['#f6d496', '#d9a865', '#e2b574', '#c89a5a']), { layers: 2, alpha: r.range(0.2, 0.34), amp: 1, seed: r.int(1, 1e6), edge: 0.06 });
+        });
+        // piedras planas, casi del color del camino
+        cells(a, b, 110, 22, (r, cx) => {
+          if (r.chance(0.45)) return;
+          const x = cx + r.range(0, 110);
+          if (x < r0 + 8 || x > r1 - 8) return;
+          const y = SY(x) + r.range(-6, 10);
+          const poly = U.blobPoly(x, y, r.range(7, 14), r.range(2.4, 4), 9, r, 0.25);
+          Paint.wash(g, poly, r.pick(['#e8cf9f', '#d9bd8c', '#f2dcae']), { layers: 2, alpha: 0.5, amp: 0.3, seed: r.int(1, 1e6), edge: 0.25 });
+          Paint.ink(g, poly.slice(5, 10), { w: 0.7, alpha: 0.25, color: '#7a5a30', seed: r.int(1, 1e6) });
+        });
+      });
+      // borde de delante: tinta suave y hierba que asoma
+      worldInk(g, botY, a, b, r0, r1, { w: 1.5, alpha: 0.45, color: '#6a4c26', breaks: 0.35, sketch: 0.4 }, 4920);
+      fringe(g, (x) => botY(x) + 4, a, b, r0, r1, 0.4, 4921, GRASS);
+      // borde de detrás: la línea clara y continua del suelo (ficha: «Lectura y encuentro»)
+      worldInk(g, topY, a, b, r0, r1, { w: 2.2, alpha: 0.75, color: '#5e4220', breaks: 0.1, sketch: 0.5, bleed: 0.6 }, 4922);
+    }
+    // ---- muro de piedra seca en los escalones del camino
+    for (let i = 1; i < seg.length; i++) {
+      const p = seg[i - 1], q = seg[i];
+      if (Math.abs(q[0] - p[0]) < 2 && Math.abs(q[1] - p[1]) > 8 && p[0] > xa - 220 && p[0] < xb + 60) stepWall(g, p[0], Math.min(p[1], q[1]), Math.max(p[1], q[1]), 150, 9000 + Math.round(p[0]));
+    }
+  }
+
+  // Muro bajo de piedra seca en un escalón: sostiene el nivel de arriba hasta el de abajo y se
+  // deshace en la ladera hacia la derecha. Piedras cálidas, luz de miel arriba, sombra parda abajo.
+  function stepWall(g, xf, yTop, yLow, width, seed) {
+    const rng = U.makeRng(seed);
+    const y1 = yLow + 18;
+    for (let y = yTop + 12, row = 0; y < y1 - 6; row++) {
+      const rh = Math.min(rng.range(14, 22), y1 - y);
+      let x = xf - rng.range(2, 8) + (row % 2) * 10;
+      while (x < xf + width) {
+        const w = rng.range(26, 46);
+        if (rng.next() < (x - xf) / width * 0.9) { x += w; continue; }
+        const sd = seed + row * 97 + Math.round(x);
+        const poly = Props.smoothBlob(x + w / 2, y + rh / 2, w / 2, rh / 2, 9, rng, 0.12, 0.6);
+        Paint.wash(g, poly, rng.pick(['#b59a76', '#a48868', '#c2a882', '#9a7f60']), { layers: 3, alpha: 0.88, amp: 0.4, seed: sd, edge: 0.3, core: 1 });
+        Paint.within(g, poly, () => {
+          Paint.wash(g, [[x, y - 2], [x + w, y - 2], [x + w, y + rh * 0.35], [x, y + rh * 0.3]], '#e4c896', { layers: 2, alpha: 0.4, amp: 1, seed: sd + 1, edge: 0 });
+          Paint.shade(g, [[x, y + rh * 0.6], [x + w, y + rh * 0.55], [x + w, y + rh + 2], [x, y + rh + 2]], '#5c4126', { layers: 2, alpha: 0.3, amp: 1, seed: sd + 2, edge: 0 });
+        });
+        Paint.ink(g, poly, { closed: true, w: 1.2, alpha: 0.6, color: '#4a3220', seed: sd + 3, breaks: 0.25 });
+        x += w + rng.range(1, 3);
+      }
+      y += rh + rng.range(1, 2);
+    }
+    tuft(g, xf - 6, y1, 14, rng);
+    tuft(g, xf + width * 0.5, y1 + 4, 12, rng);
+  }
+
+  // El arroyo (concepto): baja del fondo hacia nosotros por tres saltos entre rocas redondas, con
+  // espuma blanca y reflejos cortos. El puente se apoya en dos estribos bajos de piedra seca
+  // asentados en las rocas de la orilla y, en el centro, en dos caballetes de madera.
+  function paintStream(g, L, gap, life) {
+    const rng = U.makeRng(5401);
+    const yb = L.gy(gap.x0), x0 = gap.x0, x1 = gap.x1, cx = (x0 + x1) / 2;
+    const B = L.bottom;
+    const half = (y) => U.lerp(62, 205, U.smoothstep(yb - 30, B - 120, y));
+    const wob = (y, s) => Math.sin(y * 0.021 + s) * 9 + Math.sin(y * 0.053 + s * 2) * 4;
+    const lx = (y) => cx - half(y) + wob(y, 1), rx = (y) => cx + half(y) + wob(y, 4);
+    const LEDGES = [[yb + 62, 30], [yb + 176, 40], [yb + 318, 52]];
+    // orillas interiores: la misma ladera que a los lados (mismo degradado anclado a la orilla)
+    // (se extienden 70 u sobre las laderas vecinas y se funden en ellas: sin costura en la orilla)
+    const F = 70;
+    const inner = [[x0 - F, yb + 16], [x0, yb + 14], [x0, yb - 34], [x1, yb - 34], [x1, yb + 14], [x1 + F, yb + 16], [x1 + F, B + 10], [x0 - F, B + 10]];
+    Paint.within(g, inner, () => {
+      const gr = g.createLinearGradient(0, yb, 0, yb + 640);
+      gr.addColorStop(0, '#a48a4a'); gr.addColorStop(0.06, '#93793f'); gr.addColorStop(0.2, '#7c6632'); gr.addColorStop(0.42, '#665428'); gr.addColorStop(0.7, '#524320'); gr.addColorStop(1, '#45381a');
+      g.fillStyle = gr;
+      g.fillRect(x0 - F, yb - 34, x1 - x0 + 2 * F, B - yb + 50);
+
+      for (let i = 0; i < 160; i++) {
+        const y = yb + 18 + Math.pow(rng.next(), 1.3) * 520, x = rng.range(x0 - F, x1 + F);
+        tuft(g, x, y, 12 * (0.8 + (y - yb) / 220), rng, rng.chance(0.4) ? GRASS_LIT : GRASS);
+      }
+      for (let i = 0; i < 46; i++) {
+        const y = yb + 30 + rng.next() * 480, x = rng.range(x0 - F, x1 + F);
+        wildFlower(g, x, y, rng.chance(0.5) ? 'yellow' : 'daisy', 0.85 + (y - yb) / 200, rng, 5390 + i);
+      }
+      // los bordes laterales se funden sobre la ladera vecina
+      g.save();
+      g.globalCompositeOperation = 'destination-out';
+      for (const [xa, xb, a0, a1] of [[x0 - F, x0 - 6, 1, 0], [x1 + 6, x1 + F, 0, 1]]) {
+        const fg = g.createLinearGradient(xa, 0, xb, 0);
+        fg.addColorStop(0, `rgba(0,0,0,${a0})`); fg.addColorStop(1, `rgba(0,0,0,${a1})`);
+        g.fillStyle = fg; g.fillRect(xa, yb + 10, xb - xa, B - yb + 20);
+      }
+      g.restore();
+    });
+    // agua: reflejo crema del cielo arriba, verde gris hondo en las pozas de abajo
+    const Lp = [], Rp = [];
+    for (let y = yb - 34; y <= B + 10; y += 8) { Lp.push([lx(y), y]); Rp.push([rx(y), y]); }
+    const water = Lp.concat(Rp.slice().reverse());
+    Paint.within(g, water, () => {
+      const gr = g.createLinearGradient(0, yb - 34, 0, B);
+      gr.addColorStop(0, '#c9bfa4'); gr.addColorStop(0.12, '#c3bea8'); gr.addColorStop(0.35, '#adaf9f'); gr.addColorStop(0.7, '#949e97'); gr.addColorStop(1, '#7f8c88');
+      g.fillStyle = gr;
+      g.fillRect(cx - 330, yb - 40, 660, B - yb + 60);
+      // la sombra del puente sobre el agua y el reflejo de las orillas oscuras
+      Paint.shade(g, [[cx - 330, yb - 40], [cx + 330, yb - 40], [cx + 330, yb + 26], [cx - 330, yb + 38]], '#4e4630', { layers: 3, alpha: 0.3, amp: 4, seed: 5404, edge: 0 });
+      for (const side of [-1, 1]) Paint.shade(g, [[cx + side * 30, yb - 40], [cx + side * 330, yb - 40], [cx + side * 330, B], [cx + side * 120, B]], '#5a5236', { layers: 2, alpha: 0.12, amp: 6, seed: 5405 + side, edge: 0 });
+      for (const [yy, hh] of LEDGES) Paint.shade(g, U.blobPoly(cx, yy + hh + 46, half(yy) * 0.9, 30, 12, rng, 0.2), '#5f6f6c', { layers: 3, alpha: 0.22, amp: 4, seed: 5402 + yy, edge: 0 });
+      // reflejos cortos (ficha: «agua mansa con reflejos cortos»)
+      for (let i = 0; i < 70; i++) {
+        const y = rng.range(yb - 20, B - 30), w = rng.range(6, 22) * (0.6 + (y - yb) / 400);
+        const x = cx + rng.range(-1, 1) * half(y) * 0.8;
+        Paint.ink(g, [[x - w, y], [x + w, y + rng.range(-1, 1)]], { w: rng.range(1, 2.2), alpha: 0.55, color: '#f7efdb', seed: 5410 + i, taper: 0.5 });
+      }
+    });
+    Paint.ink(g, Lp, { w: 1.2, alpha: 0.45, color: '#4a3a24', seed: 5420, breaks: 0.4 });
+    Paint.ink(g, Rp, { w: 1.2, alpha: 0.45, color: '#4a3a24', seed: 5421, breaks: 0.4 });
+    // tres saltos: una hilera de rocas atraviesa el cauce y el agua cae por los huecos
+    for (const [yy, hh] of LEDGES) {
+      const a = lx(yy), b = rx(yy), w = b - a;
+      const n = 3 + 2 * Math.round(w / 170);
+      for (let k = 0; k < n; k++) {
+        const x = a + (k + 0.5) / n * w;
+        if (k % 2 === 1) {
+          if (life) life.falls.push({ x, top: yy + 2, bottom: yy + hh + 10, w0: w / n * 0.7, w1: w / n * 0.95, k: 0.85, layer: 'play', scale: 0.55, fade: 70, mist: 0 });
+          for (let i = 0; i < 6; i++) Paint.softBlob(g, x + rng.range(-w / n * 0.5, w / n * 0.5), yy + hh + rng.range(2, 16), rng.range(6, 14), '#fbf7ec', 0.55);
+          continue;
+        }
+        const r = (w / n) * 0.62;
+        boulder(g, x, yy + hh * 0.55, r, r * 0.5, rng, 5500 + Math.round(x + yy), { wet: true, moss: rng.chance(0.4) });
+      }
+      for (let i = 0; i < 10; i++) Paint.softBlob(g, a + rng.range(0.1, 0.9) * w, yy + hh + rng.range(6, 22), rng.range(6, 14), '#f4f0e4', 0.4);
+    }
+    // rocas de las orillas, mojadas por abajo, cada vez mayores al acercarse
+    for (const side of [-1, 1]) {
+      for (let y = yb + 8; y < B + 20;) {
+        const s = 0.7 + (y - yb) / 300;
+        const big = rng.chance(0.25);
+        const r = rng.range(14, 30) * s * (big ? 1.5 : 1);
+        const ex = side < 0 ? lx(y) : rx(y);
+        if (rng.chance(0.82)) {
+          // unas dentro del agua, otras ya en la hierba; de vez en cuando una pareja
+          const bx = ex + side * rng.range(-r * 0.6, r * 0.9);
+          boulder(g, bx, y, r, r * rng.range(0.5, 0.7), rng, 5600 + Math.round(y) * 3 + side, { wet: true });
+          if (rng.chance(0.35)) boulder(g, bx + side * r * rng.range(0.8, 1.3), y + rng.range(4, 14), r * 0.55, r * 0.34, rng, 5601 + Math.round(y) * 3 + side, { wet: false });
+        } else Paint.splatter(g, ex, y - 4, 16 * s, 5 * s, 10, '#8d704a', { alpha: 0.7, rmin: 1.2 * s, rmax: 3 * s, seed: 5602 + Math.round(y) });
+        for (let k = 0; k < 2; k++) if (rng.chance(0.6)) tuft(g, ex + side * (r + rng.range(2, 30)), y + rng.range(-2, 6), 13 * s, rng, rng.chance(0.4) ? GRASS_LIT : GRASS);
+        if (rng.chance(0.4)) wildFlower(g, ex + side * (r + rng.range(6, 34)), y - rng.range(4, 14), rng.chance(0.5) ? 'yellow' : 'daisy', s, rng, 5603 + Math.round(y));
+        y += r * rng.range(0.55, 1.05);
+      }
+    }
+    if (life) life.stream = { x0: cx - 205, x1: cx + 205, y0: yb - 20, y1: B, cx };
+    // caballetes de madera bajo las juntas del tramo central, sobre rocas del cauce
+    const supports = L.bridge.holes.slice(1).map(([h]) => h);
+    for (const sx of supports) {
+      boulder(g, sx, yb + 132, 26, 14, rng, 5700 + sx, { wet: true });
+      for (const px of [sx - 8, sx + 8]) {
+        const poly = [[px - 4, yb + 12], [px + 4, yb + 12], [px + 5, yb + 126], [px - 5, yb + 126]];
+        Paint.wash(g, poly, C.woodShade, { layers: 3, alpha: 0.92, amp: 0.3, seed: 5710 + px, edge: 0.3, core: 1 });
+        Paint.wash(g, [[px - 4, yb + 12], [px - 1, yb + 12], [px - 1, yb + 126], [px - 5, yb + 126]], '#a88a5c', { layers: 1, alpha: 0.4, amp: 0.2, seed: 5712 + px, edge: 0 });
+        Paint.ink(g, poly, { closed: true, w: 0.9, alpha: 0.6, seed: 5714 + px, color: '#3c2a1e', breaks: 0.2 });
+      }
+      Paint.ink(g, [[sx - 10, yb + 40], [sx + 10, yb + 86]], { w: 2.6, alpha: 0.8, color: C.woodShade, seed: 5716 + sx });
+    }
+    Paint.ink(g, [[supports[0] + 8, yb + 60], [supports[1] - 8, yb + 30]], { w: 3, alpha: 0.75, color: C.woodShade, seed: 5718 });
+    // estribos: piedra seca baja sobre rocas grandes de la orilla
+    for (const [ax, dir] of [[x0, -1], [x1, 1]]) {
+      boulder(g, ax + dir * 4, yb + 92, 58, 30, rng, 5800 + ax, { wet: true });
+      const r2 = U.makeRng(5810 + ax);
+      for (let row = 0; row < 3; row++) {
+        const y = yb + 8 + row * 20;
+        for (let k = 0; k < 3; k++) {
+          const w = r2.range(24, 32);
+          const sx = ax + dir * (k * 26 + (row % 2) * 12) - (dir > 0 ? 6 : w - 6);
+          const sd = 5820 + row * 10 + k + ax;
+          const poly = Props.smoothBlob(sx + w / 2, y + 9, w / 2, r2.range(8.5, 10.5), 9, r2, 0.15, 0.7);
+          Paint.wash(g, poly, r2.pick(['#b59a76', '#a48868', '#c2a882']), { layers: 3, alpha: 0.9, amp: 0.3, seed: sd, edge: 0.3, core: 1 });
+          Paint.within(g, poly, () => {
+            Paint.wash(g, [[sx, y - 1], [sx + w, y - 1], [sx + w, y + 6], [sx, y + 6]], '#e4c896', { layers: 2, alpha: 0.4, amp: 0.5, seed: sd + 1, edge: 0 });
+            Paint.shade(g, [[sx - 2, y + 11], [sx + w + 2, y + 11], [sx + w + 2, y + 21], [sx - 2, y + 21]], '#5c4126', { layers: 2, alpha: 0.28, amp: 1, seed: sd + 2, edge: 0 });
+          });
+          Paint.ink(g, poly, { closed: true, w: 1.1, alpha: 0.58, seed: sd + 3, color: '#4a3220', breaks: 0.25 });
         }
       }
-      Art.bush(g, ax + dir * 30, yb + 196, 22, rng, 5950 + ax, 'round');
+      tuft(g, ax + dir * 64, yb + 66, 16, r2);
+      bush(g, ax + dir * 80, yb + 30, 20, r2, 5850 + ax, 'round');
     }
   }
 
@@ -421,29 +736,39 @@
     const out = [];
     for (let i = 0; i < 5; i++) {
       const rng = U.makeRng(6100 + i * 13);
-      out.push(Paint.makeSprite({ w: 560, h: 320, ox: 280, oy: 290, res: 0.8, post: { edge: 0.3, grain: 0.2, density: 0.07, texScale: 1.25 } }, (g) => {
-        if (i % 2 === 0) boulder(g, rng.range(-80, 80), -4, rng.range(90, 130), rng.range(50, 70), rng, 6120 + i);
-        // matas grandes y desenfocadas: pocas manchas, bordes blandos
-        for (let k = 0; k < 16; k++) {
-          const x = rng.range(-240, 240), y = -rng.range(0, 110);
-          Paint.wash(g, U.blobPoly(x, y, rng.range(30, 80), rng.range(14, 34), 10, rng, 0.35), rng.pick(['#6f7440', '#879049', '#5a6136', '#9aa25a']), { layers: 3, alpha: 0.45, amp: 4, seed: 6130 + i * 40 + k, edge: 0.08 });
+      out.push(Paint.makeSprite({ w: 600, h: 340, ox: 300, oy: 310, res: 0.8, post: { edge: 0.3, grain: 0.2, density: 0.07, texScale: 1.25 } }, (g) => {
+        if (i % 2 === 0) boulder(g, rng.range(-90, 90), -6, rng.range(90, 130), rng.range(50, 70), rng, 6120 + i);
+        // hojas grandes y desenfocadas: pocas manchas de borde blando, oliva y ocre
+        for (let k = 0; k < 18; k++) {
+          const x = rng.range(-260, 260), y = -rng.range(0, 120);
+          Paint.wash(g, U.blobPoly(x, y, rng.range(30, 84), rng.range(14, 34), 10, rng, 0.35), rng.pick(['#6b5e2c', '#8a7a3c', '#4f4220', '#a48d45', '#7d6f34']), { layers: 3, alpha: 0.5, amp: 4, seed: 6130 + i * 40 + k, edge: 0.08 });
         }
+        // briznas largas que se curvan
+        g.lineCap = 'round';
+        for (let k = 0; k < 44; k++) {
+          const x = rng.range(-270, 270), h = rng.range(60, 150), lean = rng.range(-0.5, 0.5);
+          g.strokeStyle = rng.pick(['#6d5a26', '#8a7436', '#a68a45', '#5a4a1e']);
+          g.globalAlpha = rng.range(0.45, 0.8); g.lineWidth = rng.range(2, 4);
+          g.beginPath(); g.moveTo(x, 0); g.quadraticCurveTo(x + lean * h * 0.3, -h * 0.6, x + lean * h, -h); g.stroke();
+        }
+        g.globalAlpha = 1;
         // flores cercanas: margaritas blancas, flores amarillas y espigas rosas, grandes y suaves
-        for (let k = 0; k < 26; k++) {
-          const x = rng.range(-240, 240), y = -rng.range(30, 200);
-          const kind = rng.pick(['daisy', 'yellow', 'yellow', 'pink', 'daisy']);
-          Paint.ink(g, [[x, y + 70], [x + rng.range(-8, 8), y]], { w: 2.2, alpha: 0.75, color: '#5f6a34', seed: 6200 + i * 40 + k });
-          const R = rng.range(9, 15);
+        for (let k = 0; k < 28; k++) {
+          const x = rng.range(-250, 250), y = -rng.range(30, 210);
+          const kind = rng.pick(['daisy', 'yellow', 'yellow', 'pink', 'daisy', 'yellow']);
+          Paint.ink(g, [[x, y + 80], [x + rng.range(-8, 8), y]], { w: 2.2, alpha: 0.75, color: '#5a5222', seed: 6200 + i * 40 + k });
+          const R = rng.range(10, 17);
           if (kind === 'pink') {
             for (let j = 0; j < 6; j++) Paint.wash(g, U.blobPoly(x + (j % 2 ? 4 : -4), y - j * 7, R * 0.45, R * 0.55, 8, rng, 0.2), j > 3 ? '#efc2cf' : '#dd92a8', { layers: 2, alpha: 0.75, amp: 0.4, seed: 6300 + i * 60 + k * 6 + j, edge: 0.3 });
           } else {
             const col = kind === 'daisy' ? '#fffaf1' : '#f2c23c';
-            for (let j = 0; j < (kind === 'daisy' ? 12 : 7); j++) {
-              const a = j / (kind === 'daisy' ? 12 : 7) * U.TAU;
-              g.fillStyle = U.rgba(col, 0.88);
+            const np = kind === 'daisy' ? 12 : 8;
+            for (let j = 0; j < np; j++) {
+              const a = j / np * U.TAU;
+              g.fillStyle = U.rgba(col, 0.9);
               g.beginPath(); g.ellipse(x + Math.cos(a) * R * 0.55, y + Math.sin(a) * R * 0.4, R * 0.5, R * 0.2, a, 0, U.TAU); g.fill();
             }
-            g.fillStyle = kind === 'daisy' ? '#eab33a' : '#c27b20';
+            g.fillStyle = kind === 'daisy' ? '#e7a92c' : '#b8731c';
             g.beginPath(); g.arc(x, y, R * 0.2, 0, U.TAU); g.fill();
           }
         }
@@ -453,71 +778,109 @@
   };
 
   // ------------------------------------------------------------------ puente de tablas
-  // Tablas cruzadas sobre dos largueros, barandilla de postes y pasamanos atados con cuerda,
-  // apoyado en los estribos. Se dibuja en piezas: los huecos se tapan con tablones remendados.
+  // Tablas atravesadas sobre dos largueros, apoyado en los estribos y en dos caballetes. La
+  // tormenta se llevó el tramo central (tablas y largueros); cada tablón nuevo va de apoyo a
+  // apoyo. Todo se pinta plano a la altura y0: el guion lo dibuja en franjas que siguen la
+  // superficie del puente (su lomo y el hundimiento al pisarlo), así los pies apoyan en las tablas.
   Art.bridgeSprites = function (L) {
     const B = L.bridge, x0 = B.x0, x1 = B.x1, y = B.y0, W = x1 - x0;
+    const H0 = B.holes[0][0], H1 = B.holes[B.holes.length - 1][1];
+    const supports = B.holes.slice(1).map(([h]) => h);
     const mk = (h, oy, fn, res = 1.4) => Paint.makeSprite({ w: W + 60, h, ox: -(x0 - 30), oy, res, post: POST }, fn);
-    const inHole = (x) => B.holes.some(([a, b]) => x > a - 4 && x < b + 4);
-    const deck = mk(70, -(y - 20), (g) => {
+    const deck = mk(80, -(y - 24), (g) => {
       const rng = U.makeRng(6501);
-      // largueros
-      for (const dy of [6, 13]) {
-        const pts = [[x0 - 10, y + dy], [x1 + 10, y + dy]];
-        Paint.ink(g, pts, { w: 5, alpha: 0.9, color: dy < 10 ? '#7a5a37' : '#5e4329', seed: 6502 + dy });
+      // largueros: enteros en los extremos, partidos y astillados donde empieza el hueco
+      for (const [dy, col] of [[9, '#6a4a2a'], [16, '#55391f']]) {
+        for (const [xa, xb, end] of [[x0 - 12, H0 + 8, H0 + 8], [H1 - 8, x1 + 12, H1 - 8]]) {
+          const poly = [[xa, y + dy - 3], [xb, y + dy - 3], [xb + (end === xb ? 3 : 0), y + dy], [xb, y + dy + 3], [xa, y + dy + 3], [xa - (end === xa ? 3 : 0), y + dy]];
+          Paint.wash(g, poly, col, { layers: 2, alpha: 0.94, amp: 0.3, seed: 6502 + dy + xa, edge: 0.3, core: 1 });
+        }
       }
-      // tablas (la cara visible de cada tabla)
+      // tablas: la cara de cada tabla atravesada, con su canto de luz
       for (let x = x0 + 2, i = 0; x < x1 - 4; x += 21, i++) {
-        if (inHole(x + 10)) {
-          if (rng.chance(0.5)) Paint.wash(g, [[x + 2, y], [x + 8, y + 1], [x + 7, y + 7], [x + 1, y + 6]], '#8a6a44', { layers: 2, alpha: 0.85, amp: 0.2, seed: 6510 + i, edge: 0.3, core: 1 });
+        if (x + 10 > H0 - 2 && x + 10 < H1 + 2) continue;
+        const poly = [[x, y - 3], [x + 19, y - 3.5], [x + 19.5, y + 6], [x + 0.5, y + 6.5]];
+        Paint.wash(g, poly, rng.pick(['#a8875a', '#9a7a4c', '#b39266', '#8f7046']), { layers: 2, alpha: 0.95, amp: 0.25, seed: 6520 + i, edge: 0.3, core: 1 });
+        Paint.wash(g, [[x, y - 3], [x + 19, y - 3.5], [x + 19, y - 1.2], [x, y - 0.8]], '#e9c88e', { layers: 1, alpha: 0.6, amp: 0.1, seed: 6600 + i, edge: 0 });
+        Paint.ink(g, poly, { closed: true, w: 0.8, alpha: 0.62, seed: 6700 + i, color: '#4a3220', breaks: 0.15 });
+      }
+      // una tabla rota cuelga de un clavo a cada lado del hueco
+      for (const [hx, dir] of [[H0 - 2, 1], [H1 + 2, -1]]) {
+        const poly = [[hx, y + 2], [hx + dir * 6, y + 1], [hx + dir * 12, y + 26], [hx + dir * 5, y + 28]];
+        Paint.wash(g, poly, '#8a6a44', { layers: 2, alpha: 0.9, amp: 0.2, seed: 6780 + hx, edge: 0.3, core: 1 });
+        Paint.ink(g, poly, { closed: true, w: 0.8, alpha: 0.6, seed: 6781 + hx, color: '#4a3220' });
+      }
+      // los caballetes conservan su travesaño de apoyo
+      for (const sx of supports) {
+        Paint.wash(g, [[sx - 12, y + 7], [sx + 12, y + 7], [sx + 12, y + 14], [sx - 12, y + 14]], '#5f4325', { layers: 2, alpha: 0.95, amp: 0.2, seed: 6790 + sx, edge: 0.3, core: 1 });
+        Paint.ink(g, [[sx - 12, y + 7], [sx + 12, y + 7]], { w: 0.8, alpha: 0.5, seed: 6791 + sx, color: '#e2bf86' });
+      }
+    });
+    // tablón remendado: madera nueva, de apoyo a apoyo, atado con cuerda nueva
+    const board = (len, seed) => Paint.makeSprite({ w: len + 20, h: 26, ox: 10, oy: 8, res: 1.6, post: POST }, (g) => {
+      const rng = U.makeRng(seed);
+      const poly = [[0, -3], [len, -4], [len + 1, 6], [0, 7]];
+      Paint.wash(g, poly, C.woodNew, { layers: 3, alpha: 0.96, amp: 0.3, seed, edge: 0.3, core: 1, vary: '#e9c995', varyAmt: 0.4 });
+      Paint.within(g, poly, () => { for (let i = 0; i < 4; i++) Paint.ink(g, [[rng.range(2, len * 0.4), rng.range(-1, 4)], [rng.range(len * 0.5, len - 2), rng.range(-1, 4)]], { w: 0.6, alpha: 0.35, color: '#9c7646', seed: seed + i }); });
+      Paint.ink(g, poly, { closed: true, w: 1, alpha: 0.75, color: '#5b3d22', seed: seed + 9, breaks: 0.1 });
+      for (const rx of [6, len - 6]) { g.strokeStyle = U.rgba('#efe3c6', 0.95); g.lineWidth = 1.4; g.beginPath(); g.moveTo(rx - 3, -4); g.lineTo(rx + 3, 8); g.moveTo(rx + 2, -4); g.lineTo(rx + 7, 8); g.stroke(); }
+    });
+    const boards = B.holes.map(([a, b], i) => ({ x: a - 3, w: b - a + 6, spr: board(b - a + 6, 6801 + i) }));
+    const carry = board(96, 6809);
+    // barandilla: postes y dos pasamanos; rota (el tramo central caído) o arreglada (madera nueva)
+    const posts = [];
+    const np = Math.round(W / 62);
+    for (let k = 0; k <= np; k++) posts.push(x0 + 4 + k * (W - 8) / np);
+    const inMid = (x) => x > H0 - 8 && x < H1 + 8;
+    const rail = (fixed, far) => mk(130, -(y - 96), (g) => {
+      const rng = U.makeRng(far ? 6901 : 6951);
+      const top = y - 66, mid = y - 38;
+      const col = far ? '#7a5c3a' : '#8e6c44';
+      const newWood = '#c9a066';
+      for (const x of posts) {
+        if (!fixed && inMid(x)) {
+          // poste partido: muñón astillado
+          if (rng.chance(0.7)) {
+            const h = rng.range(14, 30);
+            const poly = [[x - 4, y + 4], [x - 3.6, y - h], [x - 1, y - h - 5], [x + 1.5, y - h + 2], [x + 3.6, y - h - 3], [x + 4, y + 4]];
+            Paint.wash(g, poly, col, { layers: 3, alpha: far ? 0.8 : 0.95, amp: 0.3, seed: 6955 + x, edge: 0.3, core: 1 });
+            Paint.ink(g, poly, { closed: true, w: 0.9, alpha: 0.55, seed: 6956 + x, color: '#3c2a1e' });
+          }
           continue;
         }
-        const poly = [[x, y - 3], [x + 19, y - 3.5], [x + 19.5, y + 5], [x + 0.5, y + 5.5]];
-        Paint.wash(g, poly, rng.pick([C.wood, '#a8814f', '#94703f', '#b38b57']), { layers: 2, alpha: 0.92, amp: 0.25, seed: 6520 + i, edge: 0.3, core: 1 });
-        Paint.wash(g, [[x, y - 3], [x + 19, y - 3.5], [x + 19, y - 1.5], [x, y - 1]], C.woodLight, { layers: 1, alpha: 0.5, amp: 0.1, seed: 6600 + i, edge: 0 });
-        Paint.ink(g, poly, { closed: true, w: 0.8, alpha: 0.6, seed: 6700 + i, color: '#4a3220', breaks: 0.15 });
-      }
-    });
-    // tablón remendado (se pone a lo largo sobre los largueros, madera nueva y cuerda nueva)
-    const board = (len, seed) => Paint.makeSprite({ w: len + 20, h: 24, ox: 10, oy: 8, res: 1.6, post: POST }, (g) => {
-      const rng = U.makeRng(seed);
-      const poly = [[0, -3], [len, -4], [len + 1, 5], [0, 6]];
-      Paint.wash(g, poly, C.woodNew, { layers: 3, alpha: 0.95, amp: 0.3, seed, edge: 0.3, core: 1, vary: '#e6c48f', varyAmt: 0.4 });
-      Paint.within(g, poly, () => { for (let i = 0; i < 4; i++) Paint.ink(g, [[rng.range(2, len * 0.4), rng.range(-1, 3)], [rng.range(len * 0.5, len - 2), rng.range(-1, 3)]], { w: 0.6, alpha: 0.35, color: '#9c7646', seed: seed + i }); });
-      Paint.ink(g, poly, { closed: true, w: 1, alpha: 0.75, color: '#5b3d22', seed: seed + 9, breaks: 0.1 });
-      for (const rx of [6, len - 6]) { g.strokeStyle = U.rgba('#e9dcc0', 0.95); g.lineWidth = 1.4; g.beginPath(); g.moveTo(rx - 3, -4); g.lineTo(rx + 3, 7); g.moveTo(rx + 2, -4); g.lineTo(rx + 7, 7); g.stroke(); }
-    });
-    const boards = B.holes.map(([a, b], i) => ({ x: a - 3, spr: board(b - a + 6, 6801 + i) }));
-    const carry = board(96, 6809);
-    // barandilla: postes y dos pasamanos; rota (tramo central caído) o arreglada
-    const rail = (fixed, far) => mk(120, -(y - 90), (g) => {
-      const rng = U.makeRng(far ? 6901 : 6951);
-      const posts = [];
-      for (let x = x0 + 4; x <= x1 - 4; x += 64) posts.push(x);
-      const top = y - 66, mid = y - 38;
-      const col = far ? '#7d6243' : '#8e6c44';
-      for (const x of posts) {
-        Paint.wash(g, [[x - 4, y + 4], [x - 3.4, top - 6], [x + 3.6, top - 7], [x + 4, y + 4]], col, { layers: 3, alpha: far ? 0.75 : 0.95, amp: 0.3, seed: 6960 + x, edge: 0.3, core: 1 });
+        const c = fixed && inMid(x) ? newWood : col;
+        Paint.wash(g, [[x - 4, y + 4], [x - 3.4, top - 6], [x + 3.6, top - 7], [x + 4, y + 4]], c, { layers: 3, alpha: far ? 0.8 : 0.96, amp: 0.3, seed: 6960 + x, edge: 0.3, core: 1 });
+        Paint.wash(g, [[x + 1, top - 6], [x + 3.6, top - 7], [x + 4, y + 4], [x + 1.5, y + 4]], '#e2bf86', { layers: 1, alpha: 0.35, amp: 0.2, seed: 6962 + x, edge: 0 });
         Paint.ink(g, [[x - 4, y + 4], [x - 3.4, top - 6]], { w: 1, alpha: 0.6, seed: 6965 + x, color: '#3c2a1e' });
       }
       for (const ry of [top, mid]) {
         for (let k = 0; k < posts.length - 1; k++) {
           const a = posts[k], b = posts[k + 1];
-          const broken = !fixed && a > B.holes[0][0] - 40 && b < B.holes[2][1] + 60 && (k + (ry === top ? 0 : 1)) % 2 === 0;
-          if (broken) {
-            // pasamanos partido colgando
-            Paint.wash(g, [[a, ry - 2], [a + 26, ry + 14], [a + 24, ry + 18], [a, ry + 3]], col, { layers: 2, alpha: 0.85, amp: 0.2, seed: 6970 + k + ry, edge: 0.3, core: 1 });
+          const touches = inMid(a) || inMid(b);
+          if (!fixed && touches) {
+            // pasamanos partido que cuelga del poste que queda en pie
+            if (!inMid(a) && rng.chance(0.85)) {
+              const poly = [[a, ry - 2], [a + 30, ry + 16], [a + 27, ry + 20], [a, ry + 3]];
+              Paint.wash(g, poly, col, { layers: 2, alpha: 0.88, amp: 0.2, seed: 6970 + k + ry, edge: 0.3, core: 1 });
+            } else if (!inMid(b) && rng.chance(0.85)) {
+              const poly = [[b, ry - 2], [b - 30, ry + 18], [b - 27, ry + 22], [b, ry + 3]];
+              Paint.wash(g, poly, col, { layers: 2, alpha: 0.88, amp: 0.2, seed: 6971 + k + ry, edge: 0.3, core: 1 });
+            }
             continue;
           }
           const poly = [[a, ry - 2.8], [b, ry - 3.2], [b, ry + 2.8], [a, ry + 3.2]];
-          Paint.wash(g, poly, fixed && a > B.holes[0][0] - 40 && b < B.holes[2][1] + 60 ? '#c49a62' : col, { layers: 2, alpha: far ? 0.75 : 0.92, amp: 0.2, seed: 6980 + k + ry, edge: 0.3, core: 1 });
+          Paint.wash(g, poly, fixed && touches ? newWood : col, { layers: 2, alpha: far ? 0.8 : 0.94, amp: 0.2, seed: 6980 + k + ry, edge: 0.3, core: 1 });
+          Paint.wash(g, [[a, ry - 2.8], [b, ry - 3.2], [b, ry - 1], [a, ry - 0.6]], '#efcf98', { layers: 1, alpha: 0.4, amp: 0.1, seed: 6985 + k + ry, edge: 0 });
           Paint.ink(g, [[a, ry + 3], [b, ry + 2.8]], { w: 0.8, alpha: 0.5, seed: 6990 + k + ry, color: '#3c2a1e' });
         }
       }
       // ataduras de cuerda en las uniones (las nuevas, más claras)
-      for (const x of posts) for (const ry of [top, mid]) {
-        g.strokeStyle = U.rgba(fixed ? '#eadcbf' : '#b9a684', 0.95); g.lineWidth = 1.3;
-        g.beginPath(); g.moveTo(x - 4, ry - 4); g.lineTo(x + 4, ry + 3); g.moveTo(x - 4, ry); g.lineTo(x + 4, ry + 6); g.stroke();
+      for (const x of posts) {
+        if (!fixed && inMid(x)) continue;
+        for (const ry of [top, mid]) {
+          g.strokeStyle = U.rgba(fixed && inMid(x) ? '#efe3c6' : '#b9a684', 0.95); g.lineWidth = 1.3;
+          g.beginPath(); g.moveTo(x - 4, ry - 4); g.lineTo(x + 4, ry + 3); g.moveTo(x - 4, ry); g.lineTo(x + 4, ry + 6); g.stroke();
+        }
       }
     });
     return { deck, boards, carry, railBackBroken: rail(false, true), railBackFixed: rail(true, true), railFrontBroken: rail(false, false), railFrontFixed: rail(true, false) };

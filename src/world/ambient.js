@@ -84,7 +84,7 @@
 
     // árboles: sprites grandes que se mecen apenas desde la base
     for (const t of (L.decor && L.decor.trees) || []) {
-      const spr = Props.tree(t.seed, { h: t.h, kind: t.kind });
+      const spr = (L.treeSprite && L.treeSprite(t)) || Props.tree(t.seed, { h: t.h, kind: t.kind });
       A.trees.push({ x: t.x, y: world.groundY(t.x), spr, ph: t.seed, behind: t.behind, shakeT: 0 });
     }
     // ramas‑plataforma del árbol

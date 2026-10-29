@@ -7,7 +7,7 @@
 
   const S = { ctx: null, on: true, ready: false, vol: 0.85, disabled: false };
   let master, comp, sfx, music, amb, echoIn, noiseBuf;
-  let wind = null, scrape = null, scrapeT = 0;
+  let wind = null, scrape = null, scrapeT = 0, water = null;
   let musicT = 2, phrase = 0, noteI = 4, ambT = 3, padOn = false, pad = null;
 
   try { S.on = localStorage.getItem('jhs-sonido') !== 'no'; } catch (e) { /* sin almacenamiento */ }
@@ -143,6 +143,21 @@
     src.connect(f); f.connect(g); g.connect(sfx);
     src.start();
     scrape = { src, f, g };
+  }
+
+  // Agua que corre entre piedras: ruido en banda con un temblor lento (no un bucle evidente).
+  function startWater() {
+    const ac = S.ctx;
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf; src.loop = true; src.playbackRate.value = 0.8;
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1700; f.Q.value = 0.7;
+    const f2 = ac.createBiquadFilter(); f2.type = 'highshelf'; f2.frequency.value = 3500; f2.gain.value = -8;
+    const lfo = ac.createOscillator(), lg = ac.createGain(); lfo.frequency.value = 0.23; lg.gain.value = 420;
+    lfo.connect(lg); lg.connect(f.frequency);
+    const g = ac.createGain(); g.gain.value = 0;
+    src.connect(f); f.connect(f2); f2.connect(g); g.connect(amb);
+    src.start(); lfo.start();
+    water = { src, f, g };
   }
 
   function startPad() {
@@ -284,6 +299,28 @@
       const t0 = now();
       tone(85 + Math.random() * 30, t0, 0.45, { type: 'sawtooth', filter: 'bandpass', freq: 520 + Math.random() * 200, q: 6, gain: 0.09, attack: 0.08, vib: [9 + Math.random() * 5, 10], pan: pan(o && o.x) });
     },
+    bell(o) {
+      // campanita del farol: parciales inarmónicos que se apagan despacio
+      const t0 = now(), p = pan(o && o.x);
+      for (const [f, g, d] of [[1568, 0.05, 1.6], [1568 * 2.76, 0.018, 0.9], [1568 * 5.4, 0.007, 0.5], [784, 0.02, 1.9]]) tone(f, t0, d, { gain: g, attack: 0.003, echo: true, pan: p });
+      tone(1571, t0 + 0.36, 1.2, { gain: 0.028, attack: 0.003, echo: true, pan: p });
+    },
+    villageBell() {
+      // la campana del pueblo, a lo lejos: grave, con eco y tres toques
+      const t0 = now() + 0.1;
+      for (let i = 0; i < 3; i++) for (const [f, g] of [[196, 0.036], [470, 0.013], [764, 0.005]]) tone(f, t0 + i * 1.7, 3.2, { gain: g, attack: 0.004, echo: true, pan: -0.35 });
+    },
+    horn(o) {
+      // el cuerno del Caballero: dos notas suaves y graves (la segunda sube si la ola va alta)
+      const t0 = now(), p = pan(o && o.x), hi = o && o.high;
+      tone(hi ? 164.81 : 146.83, t0, 0.55, { type: 'sawtooth', filter: 'lowpass', freq: 700, gain: 0.05, attack: 0.12, pan: p, vib: [4, 3] });
+      tone(hi ? 220 : 110, t0 + 0.42, 0.62, { type: 'sawtooth', filter: 'lowpass', freq: 620, gain: 0.045, attack: 0.1, pan: p, glide: hi ? 246.94 : 98, vib: [4, 3] });
+    },
+    whoosh(o) {
+      // la ola de niebla al salir (o al empujar): soplo grave que se abre
+      const t0 = now(), p = pan(o && o.x), soft = o && o.soft;
+      noise(t0, soft ? 0.5 : 0.9, { filter: 'lowpass', freq: 300, freqEnd: soft ? 900 : 1500, gain: soft ? 0.05 : 0.07, attack: 0.15, pan: p });
+    },
     birds(o) {
       const t0 = now(), p = pan(o && o.x);
       for (let i = 0; i < 5; i++) noise(t0 + i * 0.05, 0.05, { freq: 900, q: 1.5, gain: 0.03, pan: p });
@@ -344,6 +381,12 @@
     const w = JHS.Ambient.wind || 0.6;
     wind.g.gain.setTargetAtTime(play ? 0.022 + w * 0.022 : 0.01, t, 0.6);
     wind.f.frequency.setTargetAtTime(300 + w * 220, t, 0.8);
+    // el arroyo: se oye más cerca del cauce (el mundo dice dónde está)
+    if (S.water && !water) startWater();
+    if (water) {
+      const d = S.water && G.cam ? Math.abs(G.cam.x - S.water.x) : 1e9;
+      water.g.gain.setTargetAtTime(play && S.water ? 0.05 * U.clamp(1 - d / 1500, 0, 1) * S.water.k : 0, t, 0.5);
+    }
     // roca arrastrada
     scrapeT -= dt;
     if (scrapeT > 0 && !scrape) startScrape();

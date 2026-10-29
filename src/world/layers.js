@@ -133,6 +133,12 @@
   // Pinta una composición grande una sola vez en un lienzo temporal y la reparte en trozos.
   // `post` (opcional) aplica el secado de acuarela a toda la composición.
   function paintOnce(layer, box, fn, post) {
+    // grano del papel alineado con la capa: dos piezas vecinas comparten la misma textura y no
+    // dejan costura donde se tocan
+    if (post) {
+      const ts = (post.texScale || 1) * layer.q;
+      post = Object.assign({}, post, { gx: (post.gx || 0) + box.x * ts, gy: (post.gy || 0) + box.y * ts });
+    }
     const spr = JHS.Paint.makeSprite({ w: box.w, h: box.h, ox: -box.x, oy: -box.y, res: layer.q, read: true, post }, fn);
     layer.stamp(spr, 0, 0, { sparse: true });
   }

@@ -109,6 +109,7 @@
     G.layers = {}; G.clouds = []; G.fg = []; G.spr = {};
     UI.dlg = null; UI.pageView = null; UI.prompt = null;
     Layers.setFrame(next.frame.c0, next.frame.range);
+    if (JHS.Sound) JHS.Sound.water = null;
     await runSteps([
       [next.mixLabel || 'Mezclando pigmentos…', () => { JHS.Sheep.build(next.wool || 'oscura'); if (next.build) next.build(G); }],
       ...next.paintSteps(G),
@@ -816,6 +817,14 @@
     vg.addColorStop(1, U.rgba(lt.vignette || '#c4a078', lt.vignetteA || 0.35));
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, 1920, 1080);
+    // virado de color del mundo (p. ej. la luz de miel del valle): una veladura suave sobre todo
+    if (lt.grade) {
+      ctx.globalCompositeOperation = lt.grade.op || 'soft-light';
+      ctx.globalAlpha = lt.grade.a;
+      ctx.fillStyle = lt.grade.color;
+      ctx.fillRect(0, 0, 1920, 1080);
+      ctx.globalAlpha = 1;
+    }
     ctx.globalCompositeOperation = 'source-over';
     hook('screen', ctx, null);
   }

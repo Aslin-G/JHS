@@ -145,8 +145,8 @@
       g.globalCompositeOperation = 'source-atop';
       for (const [x, y, rx, ry] of lobes) {
         const gr = g.createRadialGradient(x + sunSide * rx * 0.6, y + ry * 0.3, 0, x + sunSide * rx * 0.6, y + ry * 0.3, rx * 0.85);
-        gr.addColorStop(0, 'rgba(250,224,166,0.85)');
-        gr.addColorStop(1, 'rgba(250,224,166,0)');
+        gr.addColorStop(0, 'rgba(250,234,204,0.5)');
+        gr.addColorStop(1, 'rgba(250,234,204,0)');
         g.fillStyle = gr;
         g.fillRect(x - rx * 2, y - ry * 2, rx * 4, ry * 4);
       }
@@ -482,19 +482,31 @@
         oliveBlob(g, x, 566 + d * 140 + Math.abs(x - 1100) * 0.08, 8 + d * 9, rng, ['#6f6435', '#8c7a3c', '#4f4522', '#a48d45']);
       }
       for (let i = 0; i < 18; i++) cypress(g, rng.range(870, 1150), rng.range(600, 700), rng.range(50, 86), rng, rng.chance(0.5) ? C.cypress : C.cypressDark);
-      // el risco: roca gris verdosa con estratos, musgo y grietas oscuras
-      const cliff = [[1146, 680], [1150, 600], [1160, 560], [1178, 548], [1210, 548], [1228, 562], [1238, 612], [1244, 680]];
-      Paint.wash(g, U.spline(cliff, 3, true), '#a99d8a', { layers: 4, alpha: 0.65, amp: 1.5, seed: 1311, edge: 0.3, core: 0.9, vary: '#8f8676', varyAmt: 0.4 });
-      Paint.within(g, U.spline(cliff, 3, true), () => {
-        for (let i = 0; i < 18; i++) {
-          const y = 556 + i * 7 + rng.range(-2, 2);
-          Paint.ink(g, [[1146, y], [1190, y + rng.range(-3, 3)], [1244, y + rng.range(-2, 2)]], { w: 0.9, alpha: 0.28, color: '#5e5548', seed: 1312 + i, breaks: 0.5 });
+      // el risco bajo el acueducto: una cara de roca estrecha alrededor del chorro (sombra a la
+      // izquierda, luz a la derecha), con estratos y musgo; la vegetación la cierra por los lados
+      const face = [];
+      for (let t = 0; t <= 1.0001; t += 1 / 14) {
+        const a = Math.PI * t;
+        face.push([F.x - Math.cos(a) * (42 + Math.sin(t * 9) * 5), 556 + Math.sin(a) * -6 + (t < 0.5 ? 4 : 0)]);
+      }
+      face.push([F.x + 58, 640], [F.x + 40, 700], [F.x - 52, 700], [F.x - 60, 636]);
+      Paint.wash(g, face, '#8c8269', { layers: 4, alpha: 0.78, amp: 1.5, seed: 1311, edge: 0.3, core: 0.9, vary: '#7a7354', varyAmt: 0.45 });
+      Paint.within(g, face, () => {
+        Paint.shade(g, [[F.x - 70, 548], [F.x - 4, 548], [F.x - 10, 704], [F.x - 70, 704]], '#5b5248', { layers: 3, alpha: 0.34, amp: 3, seed: 1312, edge: 0 });
+        Paint.wash(g, [[F.x + 8, 550], [F.x + 70, 550], [F.x + 70, 704], [F.x + 14, 704]], '#c8b394', { layers: 3, alpha: 0.3, amp: 3, seed: 1313, edge: 0 });
+        for (let i = 0; i < 14; i++) {
+          const y = 566 + i * 9 + rng.range(-2, 2);
+          Paint.ink(g, [[F.x - 64, y], [F.x - 20, y + rng.range(-3, 3)], [F.x + 24, y + rng.range(-2, 2)], [F.x + 64, y + rng.range(-3, 3)]], { w: 0.9, alpha: 0.3, color: '#4a4238', seed: 1314 + i, breaks: 0.55 });
         }
-        Paint.shade(g, [[1146, 548], [1176, 548], [1170, 690], [1146, 690]], '#6d6458', { layers: 3, alpha: 0.3, amp: 3, seed: 1313, edge: 0 });
-        for (let i = 0; i < 10; i++) Paint.wash(g, U.blobPoly(rng.range(1150, 1240), rng.range(560, 670), rng.range(6, 12), rng.range(3, 6), 8, rng, 0.3), rng.pick(['#8d8a52', '#a49a5c']), { layers: 2, alpha: 0.4, amp: 0.5, seed: 1330 + i, edge: 0.1 });
+        for (let i = 0; i < 8; i++) Paint.wash(g, U.blobPoly(F.x + rng.range(-56, 56), rng.range(570, 680), rng.range(6, 12), rng.range(3, 6), 8, rng, 0.3), rng.pick(['#7f7a44', '#8d8a52', '#9a9456']), { layers: 2, alpha: 0.5, amp: 0.5, seed: 1340 + i, edge: 0.1 });
       });
-      // matas que asoman por arriba y por los lados del risco
-      for (const [x, y, r] of [[1150, 556, 14], [1236, 560, 12], [1144, 620, 10], [1246, 630, 12], [1170, 548, 10], [1222, 548, 10]]) oliveBlob(g, x, y + r * 0.4, r, rng, ['#7f7a44', '#a49a5c', '#5e5a33']);
+      // vegetación que cierra el risco: matas bajo el acueducto y bosquecillo a ambos lados
+      for (let x = F.x - 60; x < F.x + 66; x += 12) oliveBlob(g, x, 560 + rng.range(0, 8), rng.range(5, 8), rng, ['#6f6435', '#8c7a3c', '#4f4522']);
+      for (let i = 0; i < 46; i++) {
+        const side = i % 2 ? 1 : -1, d = rng.next();
+        oliveBlob(g, F.x + side * (40 + d * 80 + rng.range(0, 30)), 580 + rng.range(0, 130), rng.range(10, 18), rng, ['#6f6435', '#8c7a3c', '#4f4522', '#a48d45']);
+      }
+      for (const x of [F.x - 96, F.x - 80, F.x + 86, F.x + 104]) cypress(g, x, 690 + rng.range(-10, 10), rng.range(60, 84), rng, C.cypressDark);
       // poza al pie de la cascada y el arroyo que baja hacia el puente
       Paint.wash(g, U.blobPoly(F.x + 4, F.bottom + 8, 34, 9, 12, rng, 0.15), C.water, { layers: 3, alpha: 0.85, amp: 0.6, seed: 1340, edge: 0.3, core: 1 });
       const s = [];
