@@ -159,12 +159,14 @@ src/ui.js                HUD, diálogos, menús, transiciones
 src/sheet.js             hoja de personajes
 src/game.js              bucle, estados, cinemática, dibujo
 docs/BIBLIA_VISUAL.md    la biblia visual (fuente de verdad)
-docs/referencias/        lámina conceptual original
+docs/referencias/        las tres láminas originales y el concepto del Mundo 1
 docs/VALIDACION_PRUEBA_1.md  validación de esta prueba contra la biblia (§45, §81, §83)
 tools/build_artifact.py  empaquetado en un único HTML
 tools/recorrido.js       prueba automática del prólogo
 tools/recorrido_m01.js   prueba automática del Mundo 1
 docs/mundos/             ficha y diseño del Mundo 1
+docs/produccion/         edición de desarrollo (dirección artística; decisiones y continuidad)
+docs/ESTADO_Y_PENDIENTES.md  estado del proyecto, límites y pendientes
 ```
 
 ## Prueba automática
@@ -183,7 +185,14 @@ ramillete al Pastor en el mirador, que la oveja llega con ella y que no hay erro
 hoja de personajes. En el Mundo 1, otro bot habla con Ester, remienda el puente, repara las tres
 estaciones, abre el cofre, esquiva las olas del Caballero y llega al final sin caerse.
 
-## Estado
+## Estado del proyecto
+
+La edición de desarrollo de **La Senda de la Luz** ([dirección artística](docs/produccion/01_Direccion_Artistica.md),
+[decisiones y continuidad](docs/produccion/02_Decisiones_y_Continuidad.md)) y las tres láminas originales fijan el
+canon. [`docs/ESTADO_Y_PENDIENTES.md`](docs/ESTADO_Y_PENDIENTES.md) recoge qué cumple ya el juego, qué se desvía,
+qué falta, sus límites y las decisiones abiertas.
+
+## Estado de la primera prueba
 
 Esta es la **primera prueba** del pipeline (§47, §79). Siguiendo la regla de detención (§80), no
 se han producido todavía los siete mundos: primero hay que validar esta escena. La evaluación
