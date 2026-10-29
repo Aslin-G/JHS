@@ -389,8 +389,8 @@
     // las semillas «en el árbol» no se ven hasta que el árbol se sacude y caen al suelo
     this.seeds = L.seeds.map((s, i) => ({ x: s.x, y: s.y, secret: !!s.secret, taken: false, t: i * 1.3, pop: 0,
       inTree: s.inTree || null, hidden: !!s.inTree, vy: 0, falling: false }));
-    this.lanterns = L.lanterns.map((l) => ({ x: l.x, lit: false, glow: 0, t: Math.random() * 5 }));
-    this.chest = { x: L.chest.x, y: world.groundY(L.chest.x), open: false, t: 0, opening: -1 };
+    this.lanterns = (L.lanterns || []).map((l) => ({ x: l.x, lit: !!l.lit, glow: l.lit ? 1 : 0, t: Math.random() * 5 }));
+    this.chest = L.chest ? { x: L.chest.x, y: world.groundY(L.chest.x), open: false, t: 0, opening: -1 } : null;
     this.flowers = (L.flowers || []).map((f, i) => ({ x: f.x, y: world.groundY(f.x), picked: false, t: i * 2.1, pickT: -1 }));
     this.found = 0;
     this.picked = 0;
@@ -436,7 +436,7 @@
       l.glow = U.damp(l.glow, l.lit ? 1 : 0, 2.5, dt);
     }
     const c = this.chest;
-    if (c.opening >= 0) {
+    if (c && c.opening >= 0) {
       c.opening += dt;
       if (c.opening > 0.45 && !c.open) { c.open = true; JHS.Ambient.burst('gold', c.x, c.y - 40, 20); if (JHS.Sound) JHS.Sound.play('chest'); }
       if (c.opening > 1.25) { c.opening = -1; this.page = true; JHS.UI.showPage(this.L.page); JHS.UI.bumpHUD(); if (JHS.Sound) JHS.Sound.play('page'); }

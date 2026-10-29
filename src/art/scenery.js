@@ -1110,4 +1110,6 @@
   }
 
   Object.assign(Scenery, { _paintGapOnly: (l, g, L) => paintGap(l, g, L), _paintSegOnly: (l, s, i, L) => paintGroundSegment(l, s, i, L), SUN, BOTTOM, paintSky, cloudSprite, raySprite, paintFar, paintMid, paintHills, paintPlayfield, foregroundSprites, surfaceAt, surfaceRuns });
+  // utilidades que otros mundos reutilizan para pintar sus propios paisajes
+  Scenery.kit = { keyY, ridgePts, paintRange, conifer, roundTree, grassFringe, stoneWall, contourShade, edgeProfile, fern, stonePool, lowEnvelope, segPoly };
 })(window.JHS = window.JHS || {});

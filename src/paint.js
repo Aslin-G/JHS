@@ -319,7 +319,15 @@
     return { c, w: o.w, h: o.h, ox: o.ox, oy: o.oy, res };
   }
 
-  function drawSprite(ctx, s, x, y) {
+  function drawSprite(ctx, s, x, y, o) {
+    if (o && o.alpha != null) {
+      if (o.alpha <= 0.003) return;
+      const a = ctx.globalAlpha;
+      ctx.globalAlpha = a * o.alpha;
+      ctx.drawImage(s.c, x - s.ox, y - s.oy, s.w, s.h);
+      ctx.globalAlpha = a;
+      return;
+    }
     ctx.drawImage(s.c, x - s.ox, y - s.oy, s.w, s.h);
   }
 

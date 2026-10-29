@@ -36,7 +36,9 @@
   Camera.prototype.clamp = function (L) {
     const hw = 960 / this.z, hh = 540 / this.z;
     this.x = Math.max(this.x, L.bounds.left - 120 + hw);
-    this.y = Math.min(this.y, JHS.Scenery.BOTTOM - 40 - hh);
+    if (L.camRight != null) this.x = Math.min(this.x, L.camRight - hw);
+    this.y = Math.min(this.y, (L.bottom || 1460) - 40 - hh);
+    if (L.camTop != null) this.y = Math.max(this.y, L.camTop + hh);
   };
 
   // Movimiento de cámara guionizado: hacia (x, y, z) con una duración y curva suave.

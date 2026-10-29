@@ -16,7 +16,14 @@
   };
   const S = {};
   const HEAD_K = 1.25;
-  let built = false;
+  // Fases de lana de Nuba: oscura (prólogo, lámina de personajes) y clara (Valle del Amanecer,
+  // como en el concepto del mundo). La silueta y las proporciones no cambian, solo el pigmento.
+  const WOOL = {
+    oscura: { wool: '#5b3f2b', woolDark: '#33200f', woolMid: '#7a5a40', woolLight: '#a3825f', woolFleck: '#e3cfae', deep: '#2a170b', top: '#b8976f', ink: 0.8 },
+    clara: { wool: '#ece3d3', woolDark: '#a7937c', woolMid: '#cbbca7', woolLight: '#fdf9f1', woolFleck: '#ffffff', deep: '#8d7963', top: '#fffaf3', ink: 0.62 },
+  };
+  let built = null;
+  let W = WOOL.oscura;
 
   // Silueta de lana: elipse con chichones de rizos.
   function woolOutline(rx, ry, bumps, rng, cx = 0, cy = 0) {
@@ -62,13 +69,13 @@
       for (let i = 0; i < 150; i++) {
         const a = rng.range(0, U.TAU), d = Math.sqrt(rng.next());
         const x = Math.cos(a) * 46 * d, y = Math.sin(a) * 29 * d;
-        curl(g, x, y, rng.range(2.4, 4.4), rng.chance(0.5) ? P.woolDark : '#2a170b', rng.range(0.8, 1.3), rng.range(0.5, 0.85), rng);
+        curl(g, x, y, rng.range(2.4, 4.4), rng.chance(0.5) ? P.woolDark : W.deep, rng.range(0.8, 1.3), rng.range(0.5, 0.85), rng);
       }
       for (let i = 0; i < 170; i++) {
         const a = rng.range(0, U.TAU), d = Math.sqrt(rng.next());
         const x = Math.cos(a) * 45 * d + 2, y = Math.sin(a) * 28 * d;
         const top = y < 6;
-        curl(g, x, y, rng.range(2.2, 4), top && rng.chance(0.7) ? '#b8976f' : P.woolLight, rng.range(0.75, 1.15), rng.range(0.5, top ? 0.9 : 0.6), rng);
+        curl(g, x, y, rng.range(2.2, 4), top && rng.chance(0.7) ? W.top : P.woolLight, rng.range(0.75, 1.15), rng.range(0.5, top ? 0.9 : 0.6), rng);
       }
       g.globalAlpha = 1;
       Paint.splatter(g, 0, -2, 46, 28, 130, P.woolFleck, { alpha: 0.9, rmin: 0.4, rmax: 1.2, seed: 306 });
@@ -83,11 +90,11 @@
         const t = ang - 1.3 + (k / 6) * 2.6;
         pts.push([x + Math.cos(t) * 4.2, y + Math.sin(t) * 3.6]);
       }
-      Paint.ink(g, pts, { w: 1.15, alpha: 0.8, seed: 310 + i, taper: 0.35, wobble: 0.2 });
+      Paint.ink(g, pts, { w: 1.15, alpha: W.ink, seed: 310 + i, taper: 0.35, wobble: 0.2 });
     }
     for (let i = 0; i < 18; i++) {
       const [x, y] = R[Math.floor(rng.next() * R.length)];
-      curl(g, x * 1.03, y * 1.03, rng.range(2.4, 3.6), P.ink, 0.9, 0.7, rng);
+      curl(g, x * 1.03, y * 1.03, rng.range(2.4, 3.6), P.ink, 0.9, W.ink * 0.88, rng);
     }
     g.globalAlpha = 1;
   }
@@ -146,10 +153,12 @@
     Paint.ink(g, ear, { closed: true, w: 1.05, alpha: 0.85, seed: far ? 344 : 345, breaks: 0.08 });
   }
 
-  function build() {
-    if (built) return;
+  function build(phase = 'oscura') {
+    if (built === phase) return;
+    W = WOOL[phase] || WOOL.oscura;
+    for (const k of ['wool', 'woolDark', 'woolMid', 'woolLight', 'woolFleck']) P[k] = W[k];
     Paint.withInk(1.25, buildParts);
-    built = true;
+    built = phase;
   }
 
   function buildParts() {

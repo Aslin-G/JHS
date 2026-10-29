@@ -89,7 +89,7 @@ function bot() {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   const t0 = Date.now();
-  await page.goto('file://' + path.join(ROOT, 'index.html'));
+  await page.goto('file://' + path.join(ROOT, 'index.html') + '?mundo=m00');
   await page.waitForFunction(() => window.JHS && JHS.G && JHS.G.state !== 'loading', null, { timeout: 90000 });
   const load = await page.evaluate(() => ({ steps: JHS.G.loadTimes, mem: JHS.debug.memory() }));
   console.log(`Carga: ${((Date.now() - t0) / 1000).toFixed(1)} s · memoria de capas: ${load.mem.total} MB`);

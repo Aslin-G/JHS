@@ -26,13 +26,16 @@
       this.walls.push({ x: f[0], yTop: f[1], yBot: 99999, solidRight: true });
       this.walls.push({ x: l[0], yTop: l[1], yBot: 99999, solidRight: false });
     }
-    this.solids = L.rocks.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, kind: 'rock' }));
-    this.ledges = L.ledges.map((l) => Object.assign({}, l));
-    this.ladders = L.ladders;
-    this.pushables = L.pushables.map((p) => ({ x: p.x, w: p.w, h: p.h, stopX: p.stopX, minX: p.x - 260, y: 0, vx: 0, moving: 0, kind: 'push' }));
+    this.solids = (L.rocks || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, kind: r.kind || 'rock' }));
+    this.ledges = (L.ledges || []).map((l) => Object.assign({}, l));
+    this.ladders = L.ladders || [];
+    this.pushables = (L.pushables || []).map((p) => ({ x: p.x, w: p.w, h: p.h, stopX: p.stopX, minX: p.x - 260, y: 0, vx: 0, moving: 0, kind: 'push' }));
     for (const p of this.pushables) p.y = this.groundY(p.x + p.w / 2) - p.h;
+    // puente: de cuerdas (se hunde con el peso) o de tablas (casi rígido, `arch` < 0 = lomo);
+    // los huecos son una copia: un mundo puede taparlos al repararlo
     const B = L.bridge;
-    this.bridge = { x0: B.x0, x1: B.x1, y0: B.y0, y1: B.y1, sag: B.sag, holes: B.holes, load: 0, loadT: 0.5, disp: 0, dispV: 0, sheepT: -1 };
+    this.bridge = B ? { x0: B.x0, x1: B.x1, y0: B.y0, y1: B.y1, sag: B.sag, arch: B.arch == null ? 12 : B.arch, holes: B.holes.map((h) => h.slice()),
+      load: 0, loadT: 0.5, disp: 0, dispV: 0, sheepT: -1 } : null;
   }
 
   World.prototype.groundY = function (x) {
@@ -52,10 +55,10 @@
   // Superficie del puente en x (con el hundimiento actual). null en los huecos de tablas.
   World.prototype.bridgeY = function (x, ignoreHoles) {
     const b = this.bridge;
-    if (x < b.x0 || x > b.x1) return null;
+    if (!b || x < b.x0 || x > b.x1) return null;
     if (!ignoreHoles) for (const [h0, h1] of b.holes) if (x > h0 && x < h1) return null;
     const t = (x - b.x0) / (b.x1 - b.x0);
-    const base = U.lerp(b.y0, b.y1, t) + 12 * Math.sin(Math.PI * t);
+    const base = U.lerp(b.y0, b.y1, t) + b.arch * Math.sin(Math.PI * t);
     // carga puntual: forma de cuerda tensa con el vértice bajo el peso
     const tl = b.loadT;
     const shape = t < tl ? t / tl : (1 - t) / (1 - tl);
@@ -64,6 +67,7 @@
 
   World.prototype.updateBridge = function (dt, loads) {
     const b = this.bridge;
+    if (!b) return;
     let total = 0, wt = 0;
     for (const [x, w] of loads) {
       if (x > b.x0 && x < b.x1) { total += w; wt += w * (x - b.x0) / (b.x1 - b.x0); }

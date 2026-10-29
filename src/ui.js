@@ -305,10 +305,11 @@
   };
 
   // ------------------------------------------------------------------ pantallas de libro
-  UI.drawLoading = function (ctx, frac, label) {
+  UI.drawLoading = function (ctx, frac, label, info) {
     ctx.fillStyle = JHS.Tex.ready ? Paint.paperPattern(ctx) : P.paper;
     ctx.fillRect(0, 0, 1920, 1080);
-    text(ctx, 'Camino de montaña al amanecer', 960, 450, 64, { font: F.title, align: 'center', color: P.ink });
+    if (info && info.kicker) text(ctx, info.kicker.toUpperCase(), 960, 372, 20, { font: F.title, align: 'center', color: P.inkWarm, spacing: 4 });
+    text(ctx, info ? info.title : 'Preparando el cuaderno', 960, 450, 64, { font: F.title, align: 'center', color: P.ink });
     text(ctx, label, 960, 520, 28, { italic: true, align: 'center', color: P.inkSoft });
     // barra: una pincelada que avanza
     const x0 = 660, x1 = 1260, y = 590;
@@ -334,27 +335,34 @@
   }
   UI.menuItems = menuItems;
 
-  UI.drawTitle = function (ctx, t, sel, touchMode) {
+  // Portada del mundo actual: info = { kicker, title, subtitle, tag, items }.
+  UI.drawTitle = function (ctx, t, sel, touchMode, info) {
     const a = U.clamp(t / 0.8, 0, 1);
+    const items = info.items;
+    const h = 330 + items.length * 62;
     ctx.save();
     ctx.globalAlpha = a;
-    Paint.paperScrap(ctx, 560, 130, 800, 430, { seed: 81, rough: 4, alpha: 0.96 });
-    text(ctx, 'Camino de montaña', 960, 238, 70, { font: F.title, align: 'center' });
-    text(ctx, 'al amanecer', 960, 312, 56, { font: F.title, align: 'center', italic: true, color: P.inkWarm });
-    text(ctx, 'PRIMERA PRUEBA JUGABLE', 960, 362, 18, { font: F.title, align: 'center', color: P.inkGrey, spacing: 3 });
-    menuItems(ctx, ['Comenzar el camino', 'Hoja de personajes'], sel, 960, 440, 38, 62);
+    Paint.paperScrap(ctx, 560, 118, 800, h, { seed: 81, rough: 4, alpha: 0.96 });
+    if (info.kicker) text(ctx, info.kicker.toUpperCase(), 960, 176, 18, { font: F.title, align: 'center', color: P.inkWarm, spacing: 4 });
+    text(ctx, info.title, 960, 250, 68, { font: F.title, align: 'center' });
+    text(ctx, info.subtitle, 960, 320, 54, { font: F.title, align: 'center', italic: true, color: P.inkWarm });
+    if (info.tag) text(ctx, info.tag, 960, 368, 18, { font: F.title, align: 'center', color: P.inkGrey, spacing: 3 });
+    menuItems(ctx, items, sel, 960, 446, 36, 62);
     ctx.restore();
     const msg = touchMode ? 'Toca una opción' : '↑ ↓ elegir · Enter o Espacio para empezar';
     text(ctx, msg, 960, 1040, 22, { align: 'center', color: P.paper, alpha: a * 0.9 });
   };
+  UI.TITLE_MENU = { y: 446, gap: 62 };
 
-  UI.drawPause = function (ctx, sel, soundOn) {
+  UI.PAUSE_MENU = { y: 330, gap: 64 };
+  UI.drawPause = function (ctx, sel, items) {
     ctx.save();
     ctx.globalAlpha = 0.35; ctx.fillStyle = '#2b1d12'; ctx.fillRect(0, 0, 1920, 1080);
     ctx.globalAlpha = 1;
-    Paint.paperScrap(ctx, 650, 220, 620, 560, { seed: 91, rough: 4 });
-    text(ctx, 'Pausa', 960, 320, 60, { font: F.title, align: 'center' });
-    menuItems(ctx, ['Continuar', 'Volver al último farol', soundOn ? 'Sonido: activado' : 'Sonido: en silencio', 'Hoja de personajes', 'Salir al título'], sel, 960, 420, 34, 70);
+    const h = 170 + items.length * 64;
+    Paint.paperScrap(ctx, 640, 150, 640, h, { seed: 91, rough: 4 });
+    text(ctx, 'Pausa', 960, 250, 60, { font: F.title, align: 'center' });
+    menuItems(ctx, items, sel, 960, UI.PAUSE_MENU.y, 32, UI.PAUSE_MENU.gap);
     ctx.restore();
   };
 
@@ -375,27 +383,36 @@
     ctx.restore();
   };
 
-  // Tarjeta final a la derecha: a la izquierda siguen a la vista la niña, la oveja y el Pastor.
+  // Tarjeta final a la derecha: a la izquierda siguen a la vista los personajes.
+  // st = { title, subtitle, lines: [{icon, text}], time, items, sel }
   UI.END_X = 1400;
+  UI.END_MENU = { gap: 58 };
+  UI.endMenuY = (st) => 456 + st.lines.length * 70 + 72;
+  function icon(kind) {
+    return kind === 'seed' ? [UI.seedIcon, 1.8] : kind === 'page' ? [UI.pageIcon, 1.4] : kind === 'flower' ? [UI.flowerIcon, 1.6]
+      : kind === 'lantern' ? [UI.lanternIcon, 1.3] : [null, 1];
+  }
   UI.drawEnd = function (ctx, t, st) {
     const a = U.clamp(t / 1.2, 0, 1), cx = UI.END_X;
     ctx.save();
     ctx.globalAlpha = a;
-    Paint.paperScrap(ctx, cx - 450, 130, 900, 760, { seed: 101, rough: 5, alpha: 0.97 });
-    text(ctx, 'Has llegado al mirador', cx, 280, 62, { font: F.title, align: 'center' });
-    text(ctx, 'Fin de la primera prueba', cx, 340, 30, { italic: true, align: 'center', color: P.inkWarm });
+    const my = UI.endMenuY(st);
+    const h = my + (st.items.length - 1) * UI.END_MENU.gap + 56 - 120;
+    Paint.paperScrap(ctx, cx - 450, 120, 900, h, { seed: 101, rough: 5, alpha: 0.97 });
+    text(ctx, st.title, cx, 266, 58, { font: F.title, align: 'center' });
+    text(ctx, st.subtitle, cx, 324, 30, { italic: true, align: 'center', color: P.inkWarm });
     ctx.strokeStyle = P.inkWarm; ctx.globalAlpha = a * 0.6; ctx.lineWidth = 1.4;
-    ctx.beginPath(); ctx.moveTo(cx - 180, 375); ctx.quadraticCurveTo(cx, 385, cx + 180, 375); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - 180, 360); ctx.quadraticCurveTo(cx, 370, cx + 180, 360); ctx.stroke();
     ctx.globalAlpha = a;
     const ix = cx - 300, tx = cx - 260;
-    ctx.save(); ctx.translate(ix, 465); ctx.scale(1.8, 1.8); ctx.drawImage(UI.seedIcon.c, -UI.seedIcon.ox, -UI.seedIcon.oy, UI.seedIcon.w, UI.seedIcon.h); ctx.restore();
-    text(ctx, `Semillas de luz: ${st.found} de ${st.total}`, tx, 478, 34, { color: P.ink });
-    ctx.save(); ctx.translate(ix, 545); ctx.scale(1.4, 1.4); ctx.drawImage(UI.pageIcon.c, -UI.pageIcon.ox, -UI.pageIcon.oy, UI.pageIcon.w, UI.pageIcon.h); ctx.restore();
-    text(ctx, st.page ? 'Página del diario: encontrada' : 'Página del diario: sigue en algún cofre', tx, 558, 34, { color: P.ink });
-    ctx.save(); ctx.translate(ix + 2, 628); ctx.scale(1.6, 1.6); ctx.drawImage(UI.flowerIcon.c, -UI.flowerIcon.ox, -UI.flowerIcon.oy, UI.flowerIcon.w, UI.flowerIcon.h); ctx.restore();
-    text(ctx, st.flowers > 0 ? `Campanillas: ${st.flowers} de ${st.flowersTotal}, regaladas al Pastor` : `Campanillas: 0 de ${st.flowersTotal}`, tx, 638, 34, { color: P.ink });
-    text(ctx, st.time, tx, 700, 26, { italic: true, color: P.inkSoft });
-    menuItems(ctx, ['Volver a empezar', 'Hoja de personajes'], st.sel, cx, 780, 34, 60);
+    st.lines.forEach((ln, i) => {
+      const y = 456 + i * 70;
+      const [ic, k] = icon(ln.icon);
+      if (ic) { ctx.save(); ctx.translate(ix, y - 12); ctx.scale(k, k); ctx.drawImage(ic.c, -ic.ox, -ic.oy, ic.w, ic.h); ctx.restore(); }
+      text(ctx, ln.text, tx, y, 32, { color: P.ink });
+    });
+    text(ctx, st.time, tx, 456 + st.lines.length * 70 - 8, 26, { italic: true, color: P.inkSoft });
+    menuItems(ctx, st.items, st.sel, cx, my, 32, UI.END_MENU.gap);
     ctx.restore();
   };
 

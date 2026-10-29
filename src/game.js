@@ -1,33 +1,40 @@
-/* Bucle principal: carga (se pinta todo al empezar), título, juego, pausa, página del diario,
-   cinemática del mirador (§49–§50), final y hoja de personajes. */
+/* Bucle principal: carga (se pinta todo el mundo al empezar), título, juego, pausa, página del
+   diario, final y hoja de personajes. Lo propio de cada mundo (su arte, sus objetos especiales,
+   su cinemática) vive en un «guion de mundo» (src/worlds/); aquí queda lo común: la niña, la
+   oveja, el Pastor, semillas, faroles, bancos, letreros, cámara, ambiente e interfaz. */
 (function (JHS) {
   'use strict';
   const U = JHS.U, P = JHS.Palette, Paint = JHS.Paint, Layers = JHS.Layers, Input = JHS.Input, UI = JHS.UI;
-  const L = JHS.Level1;
+  let W = null; // guion del mundo actual
+  let L = null; // datos de su nivel
 
   const G = {
     state: 'loading', prev: 'title', t: 0, stateT: 0, load: { frac: 0, label: 'Preparando el papel…' },
     canvas: null, ctx: null, base: { s: 1, ox: 0, oy: 0, W: 1920, H: 1080 },
     layers: {}, clouds: [], fg: [], spr: {}, menu: 0,
     touchMode: !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches),
-    checkpoint: { x: L.start.x, y: 880 }, cine: null, failing: null, playTime: 0, endInfo: null,
+    checkpoint: { x: 0, y: 0 }, cine: null, failing: null, playTime: 0, endInfo: null,
     reduced: window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     perf: { u: 0, r: 0, dt: 0.016 },
     quality: 1, slowT: 0,
+    // comodidad (§ficha de mundo): primer plano y niebla reducibles
+    opts: { fg: 'normal', mist: 'normal' },
   };
   JHS.G = G;
+  try { Object.assign(G.opts, JSON.parse(localStorage.getItem('jhs-opciones') || '{}')); } catch (e) { /* sin almacenamiento */ }
+  function saveOpts() { try { localStorage.setItem('jhs-opciones', JSON.stringify(G.opts)); } catch (e) { /* sin almacenamiento */ } }
 
   // ------------------------------------------------------------------ lienzo
   function resize() {
     const c = G.canvas;
     const cssW = Math.max(1, c.clientWidth || window.innerWidth), cssH = Math.max(1, c.clientHeight || window.innerHeight);
     const dpr = Math.min(window.devicePixelRatio || 1, 2) * G.quality;
-    let W = Math.round(cssW * dpr), H = Math.round(cssH * dpr);
+    let Wd = Math.round(cssW * dpr), H = Math.round(cssH * dpr);
     const maxPx = 4.2e6;
-    if (W * H > maxPx) { const k = Math.sqrt(maxPx / (W * H)); W = Math.round(W * k); H = Math.round(H * k); }
-    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-    const s = Math.min(W / 1920, H / 1080);
-    G.base = { s, ox: (W - 1920 * s) / 2, oy: (H - 1080 * s) / 2, W, H, cssW, cssH };
+    if (Wd * H > maxPx) { const k = Math.sqrt(maxPx / (Wd * H)); Wd = Math.round(Wd * k); H = Math.round(H * k); }
+    if (c.width !== Wd || c.height !== H) { c.width = Wd; c.height = H; }
+    const s = Math.min(Wd / 1920, H / 1080);
+    G.base = { s, ox: (Wd - 1920 * s) / 2, oy: (H - 1080 * s) / 2, W: Wd, H, cssW, cssH };
     G.portrait = cssH > cssW * 1.1;
   }
 
@@ -44,6 +51,28 @@
   }
 
   // ------------------------------------------------------------------ carga: se pinta el mundo
+  async function runSteps(steps) {
+    G.loadTimes = G.loadTimes || [];
+    for (let i = 0; i < steps.length; i++) {
+      G.load.label = steps[i][0];
+      G.load.frac = i / steps.length;
+      await U.nextFrame();
+      await U.nextFrame();
+      const t0 = performance.now();
+      try { steps[i][1](); } catch (e) { console.error('Paso de carga «' + steps[i][0] + '»:', e); G.load.error = e.message; }
+      G.loadTimes.push([steps[i][0], Math.round(performance.now() - t0)]);
+    }
+    G.load.frac = 1;
+  }
+
+  function firstWorld(hot) {
+    const q = /[?&]mundo=(\w+)/.exec(location.search);
+    if (q && JHS.Worlds[q[1]]) return q[1];
+    if (hot && hot.world && JHS.Worlds[hot.world]) return hot.world;
+    try { const m = localStorage.getItem('jhs-mundo'); if (m && JHS.Worlds[m]) return m; } catch (e) { /* sin almacenamiento */ }
+    return JHS.Worlds.order[JHS.Worlds.order.length - 1];
+  }
+
   async function boot(hot) {
     G.canvas = document.getElementById('juego');
     G.ctx = G.canvas.getContext('2d');
@@ -60,85 +89,66 @@
         ]);
       }
     } catch (e) { /* sin red: tipografías de respaldo */ }
-    const steps = [
-      ['Preparando el papel…', () => { JHS.Tex.init(7); }],
-      ['Mezclando pigmentos…', () => { UI.init(); JHS.Girl.build(); JHS.Sheep.build(); JHS.Shepherd.build(); }],
-      ['Pintando el cielo del amanecer…', paintSkyStep],
-      ['Pintando las montañas lejanas…', () => { G.layers.far = new Layers.Layer({ name: 'far', p: 0.1, q: 0.7, chunk: 1024 }); JHS.Scenery.paintFar(G.layers.far); }],
-      ['Pintando el valle…', () => { G.layers.mid = new Layers.Layer({ name: 'mid', p: 0.25, q: 0.8, chunk: 1024 }); JHS.Scenery.paintMid(G.layers.mid); }],
-      ['Pintando las colinas…', () => { G.layers.hills = new Layers.Layer({ name: 'hills', p: 0.5, q: 0.9, chunk: 1024 }); JHS.Scenery.paintHills(G.layers.hills); }],
-      ['Pintando el sendero…', () => {
-        G.layers.play = new Layers.Layer({ name: 'play', p: 1, q: 1, chunk: 512, world: true, bounds: { x0: -720, y0: -200, x1: 9000, y1: JHS.Scenery.BOTTOM } });
-        JHS.Scenery.paintPlayfield(G.layers.play, L);
-      }],
-      ['Secando la acuarela…', setupWorldArt],
-    ];
     G.loadTimes = [];
-    for (let i = 0; i < steps.length; i++) {
-      G.load.label = steps[i][0];
-      G.load.frac = i / steps.length;
-      await U.nextFrame();
-      await U.nextFrame();
-      const t0 = performance.now();
-      steps[i][1]();
-      G.loadTimes.push([steps[i][0], Math.round(performance.now() - t0)]);
-    }
-    G.load.frac = 1;
-    newGame();
-    if (hot && hot.checkpoint) restore(hot);
+    await runSteps([
+      ['Preparando el papel…', () => { JHS.Tex.init(7); }],
+      ['Mezclando pigmentos…', () => { UI.init(); JHS.Girl.build(); JHS.Shepherd.build(); }],
+    ]);
+    await loadWorld(firstWorld(hot), true);
+    if (hot && hot.checkpoint && hot.world === W.id) restore(hot);
     else setState('title');
   }
 
-  function paintSkyStep() {
-    const sky = new Layers.Layer({ name: 'sky', p: 0.03, q: 0.5, chunk: 4096 });
-    JHS.Scenery.paintSky(sky);
-    G.layers.sky = sky;
-    const defs = [[620, 200, 300, 110, true, 1], [380, 150, 1040, 50, true, 1], [460, 160, 1880, 120, true, -1],
-      [300, 110, 1180, 300, false, 1], [520, 120, 2120, 300, false, -1], [380, 90, 640, 360, false, 1]];
-    G.clouds = defs.map(([w, h, x, y, dark, side], i) => ({ spr: JHS.Scenery.cloudSprite(w, h, 30 + i, dark, side), x, y, v: 2.5 + i * 0.7, part: 0, side: x < JHS.Scenery.SUN.x ? -1 : 1 }));
-    G.spr.rays = JHS.Scenery.raySprite();
+  // Cambia de mundo: se sueltan los lienzos del anterior y se pinta el nuevo.
+  async function loadWorld(id, quiet) {
+    const next = JHS.Worlds[id];
+    G.state = 'loading';
+    G.load.frac = 0;
+    W = G.W = next;
+    L = G.L = next.level;
+    G.layers = {}; G.clouds = []; G.fg = []; G.spr = {};
+    UI.dlg = null; UI.pageView = null; UI.prompt = null;
+    Layers.setFrame(next.frame.c0, next.frame.range);
+    await runSteps([
+      [next.mixLabel || 'Mezclando pigmentos…', () => { JHS.Sheep.build(next.wool || 'oscura'); if (next.build) next.build(G); }],
+      ...next.paintSteps(G),
+      ['Secando la acuarela…', setupWorldArt],
+    ]);
+    try { localStorage.setItem('jhs-mundo', id); } catch (e) { /* sin almacenamiento */ }
+    newGame();
+    if (!quiet) setState('title');
   }
 
   function setupWorldArt() {
     const O = JHS.Objects;
-    G.spr.lanternPost = O.lanternPost();
-    G.spr.lampOff = O.lanternLamp(false);
-    G.spr.lampOn = O.lanternLamp(true);
-    G.spr.chestClosed = O.chest(false);
-    G.spr.chestOpen = O.chest(true);
-    G.spr.seed = O.seed();
-    G.spr.planks = [O.bridgePlank(771), O.bridgePlank(772), O.bridgePlank(773)];
-    G.spr.boulder = O.boulder(L.pushables[0].w, L.pushables[0].h);
     G.spr.glow = Paint.makeSprite({ w: 200, h: 200, ox: 100, oy: 100, res: 1 }, (g) => Paint.softBlob(g, 0, 0, 100, '#ffd27a', 1));
-    G.spr.fg = JHS.Scenery.foregroundSprites();
-    G.spr.bells = [JHS.Props.bellflower(941), JHS.Props.bellflower(947), JHS.Props.bellflower(953)];
+    G.spr.seed = O.seed();
+    if ((L.lanterns || []).length) { G.spr.lanternPost = O.lanternPost(); G.spr.lampOff = O.lanternLamp(false); G.spr.lampOn = O.lanternLamp(true); }
+    if (L.chest) { G.spr.chestClosed = O.chest(false); G.spr.chestOpen = O.chest(true); }
+    if ((L.pushables || []).length) G.spr.boulder = O.boulder(L.pushables[0].w, L.pushables[0].h);
+    if ((L.flowers || []).length) G.spr.bells = [JHS.Props.bellflower(941), JHS.Props.bellflower(947), JHS.Props.bellflower(953)];
     G.world = new JHS.Physics.World(L);
+    if (W.setupArt) W.setupArt(G);
     JHS.Ambient.init(L, G.world);
-    JHS.Life.init(L, G.world);
-    // primer plano: elementos que pasan delante, colocados según la altura del sendero
-    G.fg = [];
-    const xs = [300, 1500, 2600, 3950, 5250, 6500, 7600];
-    xs.forEach((wx, i) => {
-      const gy = G.world.groundY(wx) || 800;
-      const camY = gy - JHS.Camera.FRAME_Y;
-      G.fg.push({ spr: G.spr.fg[i % G.spr.fg.length], x: 960 + (wx + 380 - Layers.C0.x) * 1.3, y: 1130 + (camY - Layers.C0.y) * 1.3, flip: i % 2 ? -1 : 1 });
-    });
+    JHS.Life.init(G.world, W.life ? W.life(G) : {});
   }
 
   // ------------------------------------------------------------------ partida
   function newGame() {
     const w = G.world = new JHS.Physics.World(L);
     JHS.Life.world = w;
+    JHS.Ambient.world = w;
     const y0 = w.groundY(L.start.x);
     G.body = new JHS.Physics.Body(L.start.x, y0);
     G.girl = JHS.Girl.create(L.start.x, y0);
-    G.sheep = JHS.Sheep.create(L.sheepStart.x, w.groundY(L.sheepStart.x));
+    const sy = w.groundY(L.sheepStart.x);
+    G.sheep = JHS.Sheep.create(L.sheepStart.x, sy);
     G.sheep.facing = -1;
     JHS.Sheep.setAnim(G.sheep, 'eat');
     G.sheepCtl = new JHS.Entities.SheepCtl(w, L, G.sheep);
-    G.sheepCtl.reset(L.sheepStart.x, w.groundY(L.sheepStart.x));
+    G.sheepCtl.reset(L.sheepStart.x, sy);
     // la oveja empieza comiendo un poco por delante: su rastro inicial va de ella a la niña
-    G.sheepCtl.trail = [{ x: L.sheepStart.x, y: w.groundY(L.sheepStart.x), ok: true, g: true, climb: false, d: 0, kind: 'ground' }];
+    G.sheepCtl.trail = [{ x: L.sheepStart.x, y: sy, ok: true, g: true, climb: false, d: 0, kind: 'ground' }];
     G.sheepWaiting = true;
     G.shep = JHS.Shepherd.create(0, 0);
     G.shepCtl = new JHS.Entities.ShepherdCtl(w, L, G.shep);
@@ -148,10 +158,12 @@
     G.checkpoint = { x: L.start.x, y: y0 };
     G.cine = null; G.failing = null; G.playTime = 0; G.autoWalk = null;
     G.prints = []; G.seated = null; G.mantle = null; G.pending = null; G.girlBubble = null; G.shook = {}; G.apart = false; G.crouchT = 0;
+    G.endInfo = null;
     JHS.Ambient.extraWind = 0;
     UI.dlg = null; UI.pageView = null; UI.hint = { t: 0, show: false };
     UI.fly = []; UI.hud.showFlowers = false;
     G.rayBoost = 0;
+    if (W.newGame) W.newGame(G);
   }
 
   function restore(h) {
@@ -159,21 +171,24 @@
     if (h.seeds) h.seeds.forEach((t, i) => { if (t && G.items.seeds[i]) { G.items.seeds[i].taken = true; G.items.seeds[i].pop = 1; } });
     G.items.found = G.items.seeds.filter((s) => s.taken).length;
     G.items.page = !!h.page;
-    if (h.page) { G.items.chest.open = true; }
+    if (h.page && G.items.chest) { G.items.chest.open = true; }
     if (h.lanterns) h.lanterns.forEach((v, i) => { if (v && G.items.lanterns[i]) { G.items.lanterns[i].lit = true; G.items.lanterns[i].glow = 1; } });
-    if (h.shepherdI != null) { G.shepCtl.i = h.shepherdI; G.shepCtl.place(Math.min(h.shepherdI, L.shepherd.length - 1)); }
+    if (h.shepherdI != null && L.shepherd && L.shepherd.length) { G.shepCtl.i = h.shepherdI; G.shepCtl.place(Math.min(h.shepherdI, L.shepherd.length - 1)); }
+    if (W.restore && h.worldState) W.restore(G, h.worldState);
     respawn();
     setState(h.state === 'play' ? 'play' : 'title');
   }
 
   function snapshot() {
     return {
+      world: W && W.id,
       state: G.state === 'play' || G.state === 'pause' ? 'play' : 'title',
       checkpoint: G.checkpoint,
       seeds: G.items ? G.items.seeds.map((s) => s.taken) : [],
       page: G.items ? G.items.page : false,
       lanterns: G.items ? G.items.lanterns.map((l) => l.lit) : [],
       shepherdI: G.shepCtl ? G.shepCtl.i : 0,
+      worldState: W && W.snapshot ? W.snapshot(G) : null,
     };
   }
 
@@ -187,6 +202,7 @@
     G.sheepWaiting = false;
     G.cam.x = cp.x + 192; G.cam.y = cp.y - JHS.Camera.FRAME_Y; G.cam.refY = cp.y; G.cam.z = JHS.Camera.ZOOM; G.cam.mode = 'follow';
     G.failing = null;
+    if (W.respawn) W.respawn(G);
   }
 
   function setState(s) {
@@ -204,75 +220,13 @@
     }, { dur: 0.7 });
   }
 
-  // ------------------------------------------------------------------ cinemática del mirador
-  function startCinematic() {
-    const M = L.mirador;
-    G.cine = { t: 0, said: false, blessed: false, gift: G.items.picked > 0 && !!L.gift };
-    G.cam.moveTo(8880, G.world.groundY(8300) - 210, 0.7, 6.5);
-    G.shepCtl.startFinale(M.shepherd, M.shepherd + 190);
-    G.seated = null;
-    G.girl.bench = false;
-    UI.dlg = null;
-  }
-
-  function endingLines() {
-    const c = G.cine;
-    G.shepCtl.fin.mode = 'speak';
-    UI.say('El Buen Pastor', L.ending, () => [G.shep.x, G.shep.y - 300], {
-      onEnd: () => { G.shepCtl.fin.mode = 'bless'; c.blessT = c.t; if (JHS.Sound) JHS.Sound.play('bless'); },
-    });
-  }
-
-  function updateCinematic(dt, inp) {
-    const c = G.cine, M = L.mirador, b = G.body, g = G.girl;
-    c.t += dt;
-    // la niña deja de correr y camina hasta el borde
-    inp.locked = false;
-    inp.run = false;
-    inp.jump = false;
-    inp.x = b.x < M.stand - 4 ? 1 : 0;
-    if (b.x >= M.stand - 4) {
-      inp.locked = true;
-      if (c.phase !== 'gift') b.facing = 1;
-      if (!g.action) { g.action = 'look'; g.actionT = 0; g.actionDur = 0; }
-    }
-    JHS.Ambient.extraWind = U.clamp(c.t / 4, 0, 1) * 1.8;
-    G.rayBoost = U.smoothstep(2.5, 7, c.t);
-    for (const cl of G.clouds) cl.part = U.smoothstep(2, 9, c.t) * 160 * cl.side;
-    if (c.t > 6.5 && !c.said) {
-      c.said = true;
-      if (c.gift) {
-        // se vuelve hacia el Pastor y le ofrece las campanillas
-        c.phase = 'gift';
-        b.facing = -1;
-        g.action = 'offer'; g.actionT = 0; g.actionDur = 0;
-        G.shepCtl.fin.toX = Math.max(G.shepCtl.fin.toX, b.x - 128);
-        G.shepCtl.fin.mode = 'kneel';
-        UI.say('La niña', L.gift.girl, () => [b.x, b.y - 250], {
-          onEnd: () => {
-            g.carry = 0;
-            G.shep.flowers = true;
-            const h = G.shep.handWorld || [G.shep.x + 60, G.shep.y - 150];
-            JHS.Ambient.burst('bell', h[0], h[1], 10);
-            JHS.Ambient.burst('gold', h[0], h[1], 10);
-            if (JHS.Sound) JHS.Sound.play('gift');
-            G.shepCtl.fin.mode = 'speak';
-            UI.say('El Buen Pastor', L.gift.shepherd, () => [G.shep.x, G.shep.y - 300], {
-              onEnd: () => { c.phase = 'view'; b.facing = 1; g.action = 'look'; g.actionT = 0; endingLines(); },
-            });
-          },
-        });
-      } else endingLines();
-    }
-    if (c.blessT && c.t > c.blessT + 2.6 && !c.ending) {
-      c.ending = true;
-      const secs = Math.round(G.playTime);
-      G.endInfo = { found: G.items.found, total: G.items.total(), page: G.items.page, flowers: G.items.picked, flowersTotal: G.items.flowers.length,
-        time: `Tiempo de camino: ${Math.floor(secs / 60)} min ${secs % 60} s`, sel: 0 };
-      UI.transition(() => setState('end'), { dur: 1.1 });
-    }
-    // la oveja se acerca, se alegra y se echa a descansar
-    return { forceAnim: c.t > 9 ? 'sleep' : c.t > 5 ? 'happy' : null };
+  // Ir a otro mundo desde un menú (con la transición de pigmento).
+  function goWorld(id, play) {
+    UI.transition(() => {
+      loadWorld(id, true).then(() => {
+        if (play) { setState('play'); UI.hint = { t: 0, show: true }; } else setState('title');
+      });
+    }, { dur: 0.7 });
   }
 
   // ------------------------------------------------------------------ actualización de juego
@@ -289,6 +243,7 @@
 
   // Lo que la niña mira cuando está tranquila.
   function interestFor(b) {
+    if (W.interest) { const q = W.interest(G, b); if (q) return q; }
     if (UI.dlg && G.shep.alpha > 0.5 && Math.abs(G.shep.x - b.x) < 600) return { x: G.shep.x, y: G.shep.y - 250 };
     let best = null, bd = 260;
     for (const sd of G.items.seeds) {
@@ -311,14 +266,14 @@
     if (G.seated) return { x: b.x, y: b.y - 232, key: '←→', label: 'levantarse', act: null };
     if (!b.grounded || g.action || UI.dlg) return null;
     const head = b.y - 212;
+    if (W.interactions) { const q = W.interactions(G, b, head); if (q) return q; }
     const c = it.chest;
-    if (!c.open && c.opening < 0 && Math.abs(b.x - c.x) < 74) return { x: c.x, y: Math.min(c.y - 100, head), key: 'E', label: 'abrir el cofre', act: 'chest' };
+    if (c && !c.open && c.opening < 0 && Math.abs(b.x - c.x) < 74) return { x: c.x, y: Math.min(c.y - 100, head), key: 'E', label: 'abrir el cofre', act: 'chest' };
     const f = it.flowerNear(b.x);
     if (f && Math.abs(f.y - b.y) < 30) return { x: f.x, y: head, key: 'E', label: 'recoger la campanilla', act: 'flower', f };
     if (G.shepCtl.canTalk(b)) return { x: G.shep.x, y: G.shep.y - 330, key: 'E', label: 'hablar', act: 'talk' };
-    for (const bn of L.decor.bench) if (Math.abs(b.x - bn.x) < 70 && Math.abs(G.world.groundY(bn.x) - b.y) < 20) return { x: bn.x, y: head, key: 'E', label: 'sentarse', act: 'bench', bn };
-    const sg = L.sign;
-    if (sg && Math.abs(b.x - sg.x) < 60) return { x: sg.x, y: head, key: 'E', label: 'leer el letrero', act: 'sign' };
+    for (const bn of (L.decor && L.decor.bench) || []) if (Math.abs(b.x - bn.x) < 70 && Math.abs(G.world.groundY(bn.x) - b.y) < 20) return { x: bn.x, y: head, key: 'E', label: 'sentarse', act: 'bench', bn };
+    for (const sg of L.signs || (L.sign ? [L.sign] : [])) if (Math.abs(b.x - sg.x) < 60) return { x: sg.x, y: head, key: 'E', label: sg.label || 'leer el letrero', act: 'sign', sg };
     for (const tr of L.shakeTrees || []) {
       const gy = G.world.groundY(tr.x);
       if (Math.abs(b.x - tr.x) < 58 && gy != null && Math.abs(gy - b.y) < 24 && !(G.shook && G.shook[tr.x] > 0)) return { x: tr.x, y: head, key: 'E', label: 'sacudir el árbol', act: 'shake', tr };
@@ -332,6 +287,7 @@
 
   function doAct(p) {
     const g = G.girl, b = G.body, it = G.items;
+    if (W.act && W.act(G, p)) return;
     if (p.act === 'chest') {
       // se coloca a un lado del cofre, de cara a él, y se agacha a abrirlo
       const c = it.chest, side = b.x < c.x ? -1 : 1;
@@ -370,9 +326,11 @@
     } else if (p.act === 'bench') {
       walkTo(p.bn.x - 8, 1, () => { G.seated = p.bn; G.seatT = 0; g.bench = true; b.facing = 1; if (JHS.Sound) JHS.Sound.play('wood'); });
     } else if (p.act === 'sign') {
-      b.facing = L.sign.x >= b.x ? 1 : -1;
+      const sg = p.sg;
+      b.facing = sg.x >= b.x ? 1 : -1;
       g.action = 'read'; g.actionT = 0; g.actionDur = 0;
-      UI.say('Letrero', L.sign.lines, () => [L.sign.x + 30, G.world.groundY(L.sign.x) - 150], { onEnd: () => { if (g.action === 'read') g.action = null; } });
+      G.reading = sg;
+      UI.say(sg.speaker || 'Letrero', sg.lines, () => [sg.x + 30, G.world.groundY(sg.x) - 150], { onEnd: () => { if (g.action === 'read') g.action = null; G.reading = null; } });
     } else if (p.act === 'shake') {
       b.facing = p.tr.x >= b.x ? 1 : -1;
       g.action = 'shake'; g.actionT = 0; g.actionDur = 1.15;
@@ -381,7 +339,7 @@
       G.pending = { t: 0.2, fn: () => {
         JHS.Ambient.shakeTree(p.tr.x);
         if (it.shakeTree(p.tr.x)) { g.expr = 'sorpresa'; g.exprT = 1.2; }
-        if (JHS.Sound) JHS.Sound.play('leaves');
+        if (JHS.Sound) JHS.Sound.play('leaves', { x: p.tr.x });
         G.cam.shake = 0.25;
       } };
     }
@@ -410,7 +368,7 @@
   function callSheep() {
     const g = G.girl;
     g.action = 'call'; g.actionT = 0; g.actionDur = 1.05;
-    G.girlBubble = { text: '¡Ven, ovejita!', t: 1.5 };
+    G.girlBubble = { text: L.callText || '¡Ven, ovejita!', t: 1.5 };
     if (G.sheepWaiting) endSheepWait();
     G.sheepCtl.call();
     JHS.Ambient.scare(G.body.x, 300);
@@ -439,11 +397,12 @@
           if (ev.run > 0.5 || ev.push) JHS.Ambient.burst('dust', ev.x, gy - 1, ev.push ? 2 : 1, { dir: -b.facing, s: 0.7 });
         }
       } else if (surf === 'bridge') {
-        w.bridge.dispV += 26 + ev.run * 30;
+        w.bridge.dispV += (26 + ev.run * 30) * (w.bridge.sag > 10 ? 1 : 0.25);
         G.bridgeKick = { x: ev.x, t: 0 };
       } else if (surf === 'branch' || surf === 'log') {
         if (Math.random() < 0.4) JHS.Ambient.burst('leaf', ev.x, b.y + 4, 1);
       }
+      if (W.onStep) W.onStep(G, ev, surf);
       if (JHS.Sound) JHS.Sound.step(surf, ev.run);
     }
     g.events.length = 0;
@@ -463,11 +422,13 @@
       jump: Input.hit('jump') || (Input.hit('up') && !nearLadder),
       jumpHeld: Input.down('jump') || (Input.down('up') && !nearLadder), run: Input.down('run'),
       locked: !!UI.pageView || !!G.failing || !!G.mantle || ['interact', 'pet', 'pick', 'shake', 'call'].includes(g.action),
+      actHeld: Input.down('act'),
     };
     inp.act = Input.hit('act');
     inp.call = Input.hit('call');
     if (JHS.debug.bot) JHS.debug.bot(G, inp, dt);
     if (G.autoWalk) { updateAutoWalk(dt, inp); inp.act = false; }
+    if (W.input) W.input(G, inp, dt);
     // sentada en un banco: cualquier movimiento la levanta
     if (G.seated) {
       G.seatT += dt;
@@ -478,19 +439,20 @@
     g.crouch = inp.down && b.grounded && !b.climbing && inp.x === 0 && !atLadderTop && !G.seated && !g.action;
     G.crouchT = g.crouch ? (G.crouchT || 0) + dt : 0;
     let sheepCtx = { secretNear: G.items.secretNear(G.sheep.x) };
-    if (G.cine) sheepCtx = Object.assign(sheepCtx, updateCinematic(dt, inp));
+    if (G.cine && W.updateCinematic) sheepCtx = Object.assign(sheepCtx, W.updateCinematic(G, dt, inp));
     else if (G.seated && G.seatT > 3) sheepCtx.forceAnim = 'sleep';
     // acción
     const pr = interactions();
     UI.setPrompt(pr);
     if (!UI.pageView && inp.act) {
-      if (UI.dlg && Math.abs(b.x - G.shep.x) < 900) UI.advance();
-      else if (UI.dlg && UI.dlg.speaker === 'Letrero') UI.advance();
+      if (UI.dlg && UI.dlg.free) UI.advance();
+      else if (UI.dlg && Math.abs(b.x - G.shep.x) < 900) UI.advance();
+      else if (UI.dlg && G.reading) UI.advance();
       else if (pr && pr.act) doAct(pr);
     }
     if (inp.call && !G.cine && b.grounded && !g.action && !G.autoWalk && !UI.pageView) callSheep();
-    if (g.action === 'read' && (inp.x !== 0 || !b.grounded || !UI.dlg || UI.dlg.speaker !== 'Letrero')) g.action = null;
-    if (UI.dlg && UI.dlg.speaker === 'Letrero' && Math.abs(b.x - L.sign.x) > 260) UI.cancel();
+    if (g.action === 'read' && (inp.x !== 0 || !b.grounded || !UI.dlg || !G.reading)) g.action = null;
+    if (UI.dlg && G.reading && Math.abs(b.x - G.reading.x) > 260) UI.cancel();
     if (G.pending) { G.pending.t -= dt; if (G.pending.t <= 0) { const fn = G.pending.fn; G.pending = null; fn(); } }
     // frenada: soltar o invertir la dirección a toda carrera
     const braking = b.grounded && !b.climbing && Math.abs(b.vx) > 190 && (inp.x === 0 || Math.sign(inp.x) !== Math.sign(b.vx)) && !inp.locked;
@@ -503,7 +465,7 @@
       JHS.Physics.step(w, b, Object.assign({}, inp, { jump: inp.jump && i === 0 }), dt / n);
       if (b.landed && b.landV > 380) {
         JHS.Ambient.burst('dust', b.x, b.y - 2, 5 + Math.min(6, b.landV / 160));
-        if (b.surface === 'bridge') w.bridge.dispV += b.landV * 0.12;
+        if (b.surface === 'bridge') w.bridge.dispV += b.landV * 0.12 * (w.bridge.sag > 10 ? 1 : 0.3);
         if (JHS.Sound) JHS.Sound.land(b.surface, b.landV);
       }
       if (b.jumpedNow) { b.jumpedNow = false; if (JHS.Sound) JHS.Sound.play('jump'); }
@@ -548,10 +510,12 @@
       }
     }
     // puente: el peso de la niña y de la oveja
-    const loads = [];
-    if (b.grounded && b.surface === 'bridge') loads.push([b.x, 1]);
-    if (G.sheep.x > w.bridge.x0 && G.sheep.x < w.bridge.x1 && G.sheepCtl.mode === 'trail') loads.push([G.sheep.x, 0.35]);
-    w.updateBridge(dt, loads);
+    if (w.bridge) {
+      const loads = [];
+      if (b.grounded && b.surface === 'bridge') loads.push([b.x, 1]);
+      if (G.sheep.x > w.bridge.x0 && G.sheep.x < w.bridge.x1 && G.sheepCtl.mode === 'trail') loads.push([G.sheep.x, 0.35]);
+      w.updateBridge(dt, loads);
+    }
     if (G.bridgeKick) { G.bridgeKick.t += dt; if (G.bridgeKick.t > 0.6) G.bridgeKick = null; }
     // oveja: espera comiendo hasta que la niña se acerca
     if (G.sheepWaiting) {
@@ -580,8 +544,8 @@
     if (G.girlBubble) { G.girlBubble.t -= dt; if (G.girlBubble.t <= 0) G.girlBubble = null; }
     // una mariposa se posa en el pelo si se sienta un rato
     JHS.Ambient.landOn = (G.seated && G.seatT > 4) || g.sitK > 0.9 ? { x: b.x + b.facing * 6, y: b.y - (G.seated ? 192 : 150) } : null;
-    // mirador
-    if (!G.cine && b.x > L.mirador.trigger && b.grounded) startCinematic();
+    // lo propio del mundo (sus objetos, sus estados, su cinemática)
+    if (W.update) W.update(G, dt, inp);
     // caída: desvanecerse en luz y volver al último farol (§70)
     if (!G.failing && b.y > L.killY) {
       G.failing = { t: 0 };
@@ -605,6 +569,8 @@
   }
 
   // ------------------------------------------------------------------ dibujo de escena
+  function hook(name, ctx, r) { const f = W.draw && W.draw[name]; if (f) f(G, ctx, r); }
+
   function drawClouds(ctx, r) {
     const sky = G.layers.sky;
     const span = sky.x1 - sky.x0 + 900;
@@ -612,55 +578,25 @@
       let x = c.x + c.part + (G.reduced ? 0 : G.t * c.v);
       x = ((x - sky.x0 + 450) % span + span) % span + sky.x0 - 450;
       if (x + c.spr.w < r.x0 || x - c.spr.w > r.x1) continue;
+      if (c.a != null) ctx.globalAlpha = c.a;
       ctx.drawImage(c.spr.c, x - c.spr.ox, c.y - c.spr.oy, c.spr.w, c.spr.h);
+      ctx.globalAlpha = 1;
     }
   }
 
   function drawRays(ctx) {
-    const SUN = JHS.Scenery.SUN;
-    const a = (0.36 + 0.06 * Math.sin(G.t * 0.45)) * (1 + G.rayBoost * 1.2);
+    const SUN = W.sun, sp = G.spr.rays;
+    if (!sp) return;
+    const a = (W.rayAlpha || 0.36) * (1 + 0.16 * Math.sin(G.t * 0.45)) * (1 + G.rayBoost * 1.2);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     ctx.globalAlpha = Math.min(1, a);
     ctx.translate(SUN.x, SUN.y);
     ctx.rotate(Math.sin(G.t * 0.07) * 0.015);
-    ctx.drawImage(G.spr.rays.c, -G.spr.rays.ox, -G.spr.rays.oy, G.spr.rays.w, G.spr.rays.h);
+    ctx.drawImage(sp.c, -sp.ox, -sp.oy, sp.w, sp.h);
     ctx.globalAlpha = 0.55 + G.rayBoost * 0.3;
     ctx.drawImage(G.spr.glow.c, -260, -260, 520, 520);
     ctx.restore();
-  }
-
-  function drawBridge(ctx, front) {
-    const w = G.world, br = w.bridge;
-    const ropeY = (x) => w.bridgeY(x, true) - 46 - 6 * Math.sin(Math.PI * (x - br.x0) / (br.x1 - br.x0));
-    const pts = [];
-    for (let x = br.x0; x <= br.x1; x += 12) pts.push([x, ropeY(x)]);
-    if (!front) {
-      Paint.ink(ctx, pts.map(([x, y]) => [x, y - 4]), { w: 2, alpha: 0.55, color: P.woodShade, seed: 5, wobble: 0.2 });
-      Paint.ink(ctx, pts.map(([x]) => [x, w.bridgeY(x, true) + 7]), { w: 2.2, alpha: 0.75, color: P.woodShade, seed: 6, wobble: 0.2 });
-      let i = 0;
-      for (let x = br.x0 + 13; x < br.x1 - 8; x += 26, i++) {
-        const inHole = br.holes.some(([a, b]) => x > a - 6 && x < b + 6);
-        const y = w.bridgeY(x, true);
-        const sl = Math.atan2(w.bridgeY(x + 6, true) - w.bridgeY(x - 6, true), 12);
-        if (inHole) {
-          if (i % 2) { // tabla rota colgando
-            ctx.save(); ctx.translate(x - 8, y + 2); ctx.rotate(1.2); ctx.globalAlpha = 0.85;
-            const s = G.spr.planks[i % 3]; ctx.drawImage(s.c, -s.ox, -s.oy, s.w * 0.6, s.h); ctx.restore();
-          }
-          continue;
-        }
-        const s = G.spr.planks[i % 3];
-        ctx.save(); ctx.translate(x, y); ctx.rotate(sl); ctx.drawImage(s.c, -s.ox, -s.oy, s.w, s.h); ctx.restore();
-      }
-    } else {
-      Paint.ink(ctx, pts, { w: 2.4, alpha: 0.85, color: '#7a5634', seed: 7, wobble: 0.2 });
-      ctx.strokeStyle = '#7a5634'; ctx.lineWidth = 1.3; ctx.globalAlpha = 0.75;
-      ctx.beginPath();
-      for (let x = br.x0 + 26; x < br.x1; x += 52) { ctx.moveTo(x, ropeY(x)); ctx.lineTo(x, w.bridgeY(x, true) + 2); }
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
   }
 
   // Huellas de las botas en el sendero: se secan y desaparecen.
@@ -735,7 +671,7 @@
       }
     }
     const c = it.chest;
-    if (c.x > r.x0 - 200 && c.x < r.x1 + 200) {
+    if (c && c.x > r.x0 - 200 && c.x < r.x1 + 200) {
       Paint.drawSprite(ctx, c.open ? G.spr.chestOpen : G.spr.chestClosed, c.x, c.y + 2);
       if (c.open) { ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.35; ctx.drawImage(G.spr.glow.c, c.x - 70, c.y - 110, 140, 140); ctx.restore(); }
     }
@@ -747,6 +683,7 @@
       ctx.drawImage(G.spr.boulder.c, -G.spr.boulder.ox, -G.spr.boulder.oy, G.spr.boulder.w, G.spr.boulder.h);
       ctx.restore();
     }
+    hook('items', ctx, r);
     for (const sd of it.seeds) {
       if (sd.x < r.x0 - 100 || sd.x > r.x1 + 100) continue;
       if (sd.taken && sd.pop >= 1) continue;
@@ -768,16 +705,37 @@
     }
   }
 
+  // Faroles encendidos para las polillas (centro del farol).
+  function lamps() {
+    const out = [];
+    for (const l of G.items.lanterns) if (l.lit) out.push({ x: l.x + 28, y: G.world.groundY(l.x) - 126, glow: l.glow });
+    if (W.lamps) for (const l of W.lamps(G)) out.push(l);
+    return out;
+  }
+
+  // Primer plano (§17 capa 1). Se puede reducir por comodidad: menos opacidad y menos tamaño.
   function drawForeground(ctx, r) {
+    const red = G.opts.fg === 'reducido';
     for (const f of G.fg) {
       if (f.x + 400 < r.x0 || f.x - 400 > r.x1) continue;
+      // «sólo en esquinas»: el primer plano se desvanece al acercarse al centro de la pantalla
+      let a = 0.95;
+      if (f.corners) {
+        const sx = (f.x - (r.x0 + r.x1) / 2) / ((r.x1 - r.x0) / 2);
+        a *= U.smoothstep(0.35, 0.72, Math.abs(sx));
+      }
+      if (red) a *= 0.45;
+      if (a < 0.02) continue;
+      const s = (f.s || 1.05) * (red ? 0.8 : 1);
       ctx.save();
-      ctx.translate(f.x, f.y);
-      ctx.scale(f.flip * 1.05, 1.05);
-      ctx.globalAlpha = 0.95;
+      ctx.translate(f.x, f.y + (red ? 40 : 0));
+      if (f.sway) ctx.rotate(Math.sin(G.t * 0.9 + f.x * 0.01) * 0.012 + JHS.Ambient.gustAt(f.x * 0.77, 0.05) * 0.03);
+      ctx.scale(f.flip * s, s);
+      ctx.globalAlpha = a;
       ctx.drawImage(f.spr.c, -f.spr.ox, -f.spr.oy, f.spr.w, f.spr.h);
       ctx.restore();
     }
+    hook('foreground', ctx, r);
   }
 
   function drawScene(ctx) {
@@ -789,38 +747,52 @@
   }
 
   function drawSceneLayers(ctx, base, cam) {
+    const Lf = JHS.Life;
     let r = Layers.applyLayer(ctx, base, 0.03, cam);
     G.layers.sky.render(ctx, r);
     drawClouds(ctx, r);
+    hook('sky', ctx, r);
     r = Layers.applyLayer(ctx, base, 0.1, cam);
     G.layers.far.render(ctx, r);
+    hook('far', ctx, r);
     Layers.applyLayer(ctx, base, 0.03, cam);
     drawRays(ctx);
     r = Layers.applyLayer(ctx, base, 0.25, cam);
     G.layers.mid.render(ctx, r);
-    JHS.Life.drawVillage(ctx, r);
+    Lf.drawFalls(ctx, 'mid', r); Lf.drawSmoke(ctx, 'mid', r); Lf.drawWindows(ctx, 'mid', r);
     JHS.Ambient.drawBirds(ctx);
+    hook('mid', ctx, r);
     r = Layers.applyLayer(ctx, base, 0.5, cam);
     G.layers.hills.render(ctx, r);
-    JHS.Life.drawCloudShadows(ctx, r);
+    Lf.drawCloudShadows(ctx, 'hills', r); Lf.drawFalls(ctx, 'hills', r); Lf.drawSmoke(ctx, 'hills', r); Lf.drawWindows(ctx, 'hills', r);
+    hook('hills', ctx, r);
+    if (G.layers.back) {
+      r = Layers.applyLayer(ctx, base, G.layers.back.p, cam);
+      G.layers.back.render(ctx, r);
+      hook('back', ctx, r);
+      Lf.drawSmoke(ctx, 'back', r); Lf.drawWindows(ctx, 'back', r);
+    }
     r = Layers.applyWorld(ctx, base, cam);
     G.layers.play.render(ctx, r);
-    JHS.Life.drawFalls(ctx, r);
+    Lf.drawFalls(ctx, 'play', r);
+    hook('playBack', ctx, r);
     JHS.Ambient.drawTrees(ctx, r, true);
     JHS.Ambient.drawTrees(ctx, r, false);
     JHS.Ambient.drawBack(ctx, r);
     drawItems(ctx, r);
     JHS.Ambient.drawGroundBirds(ctx, r);
-    drawBridge(ctx, false);
+    hook('bridgeBack', ctx, r);
     JHS.Shepherd.draw(ctx, G.shep);
+    hook('npcs', ctx, r);
     JHS.Sheep.draw(ctx, G.sheep);
     JHS.Girl.draw(ctx, G.girl);
-    drawBridge(ctx, true);
+    hook('bridgeFront', ctx, r);
     JHS.Ambient.drawFront(ctx, r);
     JHS.Ambient.drawButterflies(ctx, r);
     JHS.Ambient.drawParticles(ctx);
-    JHS.Life.drawFront(ctx, r, G.items);
+    Lf.drawFront(ctx, r, lamps());
     JHS.Ambient.drawMotes(ctx, cam, G.rayBoost || 0);
+    hook('worldFront', ctx, r);
     JHS.Sheep.drawBubble(ctx, G.sheep);
     if (G.girlBubble && G.girl.alpha > 0.5) {
       const gb = G.girlBubble, k = U.smoothstep(0, 0.15, 1.5 - gb.t) * U.smoothstep(0, 0.25, gb.t);
@@ -830,20 +802,22 @@
     drawForeground(ctx, r);
     // luz de amanecer y viñeta de página (muy suaves)
     screenSet(ctx);
-    const [sx, sy] = Layers.layerToScreen(0.03, cam, JHS.Scenery.SUN.x, JHS.Scenery.SUN.y);
-    const gl = ctx.createRadialGradient(sx, sy, 0, sx, sy, 1400);
-    gl.addColorStop(0, `rgba(255,226,170,${0.16 + G.rayBoost * 0.12})`);
-    gl.addColorStop(1, 'rgba(255,226,170,0)');
+    const lt = W.light || {};
+    const [sx, sy] = Layers.layerToScreen(0.03, cam, W.sun.x, W.sun.y);
+    const gl = ctx.createRadialGradient(sx, sy, 0, sx, sy, lt.r || 1400);
+    gl.addColorStop(0, U.rgba(lt.glow || '#ffe2aa', (lt.a || 0.16) + G.rayBoost * 0.12));
+    gl.addColorStop(1, U.rgba(lt.glow || '#ffe2aa', 0));
     ctx.globalCompositeOperation = 'screen';
     ctx.fillStyle = gl;
     ctx.fillRect(0, 0, 1920, 1080);
     ctx.globalCompositeOperation = 'multiply';
     const vg = ctx.createRadialGradient(960, 540, 600, 960, 540, 1250);
     vg.addColorStop(0, 'rgba(255,255,255,0)');
-    vg.addColorStop(1, 'rgba(196,160,120,0.35)');
+    vg.addColorStop(1, U.rgba(lt.vignette || '#c4a078', lt.vignetteA || 0.35));
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, 1920, 1080);
     ctx.globalCompositeOperation = 'source-over';
+    hook('screen', ctx, null);
   }
 
   function worldToScreen(x, y) {
@@ -900,6 +874,24 @@
     return -1;
   }
 
+  // Otro mundo al que se puede ir desde el título.
+  function otherWorld() {
+    const ord = JHS.Worlds.order;
+    return JHS.Worlds[ord[(ord.indexOf(W.id) + 1) % ord.length]];
+  }
+
+  function titleItems() {
+    const o = otherWorld();
+    return ['Comenzar el camino', `Ir a: ${o.kicker} · ${o.short || o.title}`, 'Hoja de personajes'];
+  }
+
+  function pauseItems() {
+    return ['Continuar', 'Volver al último farol', JHS.Sound.on ? 'Sonido: activado' : 'Sonido: en silencio',
+      G.opts.fg === 'reducido' ? 'Primer plano: reducido' : 'Primer plano: normal',
+      G.opts.mist === 'reducida' ? 'Niebla: reducida' : 'Niebla: normal',
+      'Hoja de personajes', 'Salir al título'];
+  }
+
   function update(dt) {
     if (G.state === 'loading') return;
     JHS.Sound.update(dt, G);
@@ -908,37 +900,47 @@
     if (G.state === 'title') {
       // de fondo, la escena viva en su posición inicial
       idleScene(dt);
-      menuNav(2);
-      const tp = tapMenu(440, 62, 2);
+      const n = titleItems().length;
+      menuNav(n);
+      const tp = tapMenu(UI.TITLE_MENU.y, UI.TITLE_MENU.gap, n);
       if (tp >= 0) G.menu = tp;
       if (!UI.trans && Input.hit('sheet')) setState('sheet');
       else if (!UI.trans && (confirm() || tp >= 0)) {
-        if (G.menu === 0) startPlay(); else setState('sheet');
+        if (G.menu === 0) startPlay();
+        else if (G.menu === 1) goWorld(otherWorld().id, false);
+        else setState('sheet');
       }
     } else if (G.state === 'play') {
       updatePlay(dt);
     } else if (G.state === 'pause') {
-      menuNav(5);
-      const tp = tapMenu(420, 70, 5);
+      const n = pauseItems().length;
+      menuNav(n);
+      const tp = tapMenu(UI.PAUSE_MENU.y, UI.PAUSE_MENU.gap, n);
       if (tp >= 0) G.menu = tp;
       if (Input.hit('pause')) setState('play');
       else if (Input.hit('sheet')) setState('sheet');
       else if (confirm() || tp >= 0) {
-        if (G.menu === 0) setState('play');
-        else if (G.menu === 1) { setState('play'); G.body.y = L.killY + 10; }
-        else if (G.menu === 2) JHS.Sound.toggle();
-        else if (G.menu === 3) setState('sheet');
+        const m = G.menu;
+        if (m === 0) setState('play');
+        else if (m === 1) { setState('play'); G.body.y = L.killY + 10; }
+        else if (m === 2) JHS.Sound.toggle();
+        else if (m === 3) { G.opts.fg = G.opts.fg === 'reducido' ? 'normal' : 'reducido'; saveOpts(); }
+        else if (m === 4) { G.opts.mist = G.opts.mist === 'reducida' ? 'normal' : 'reducida'; saveOpts(); }
+        else if (m === 5) setState('sheet');
         else { UI.transition(() => { newGame(); setState('title'); }); }
       }
     } else if (G.state === 'end') {
       idleScene(dt, true);
-      menuNav(2);
-      G.endInfo.sel = G.menu;
-      const tp = tapMenu(780, 60, 2, UI.END_X);
-      if (tp >= 0) G.menu = G.endInfo.sel = tp;
+      const st = G.endInfo, n = st.items.length;
+      menuNav(n);
+      st.sel = G.menu;
+      const tp = tapMenu(UI.endMenuY(st), UI.END_MENU.gap, n, UI.END_X);
+      if (tp >= 0) G.menu = st.sel = tp;
       if (G.stateT > 1 && (confirm() || tp >= 0)) {
-        if (G.menu === 0) UI.transition(() => { newGame(); setState('play'); UI.hint = { t: 0, show: true }; });
-        else setState('sheet');
+        const choice = st.actions[G.menu];
+        if (choice === 'again') UI.transition(() => { newGame(); setState('play'); UI.hint = { t: 0, show: true }; });
+        else if (choice === 'sheet') setState('sheet');
+        else if (choice && choice.world) goWorld(choice.world, true);
       }
     } else if (G.state === 'sheet') {
       JHS.Sheet.update(dt);
@@ -958,6 +960,7 @@
     JHS.Girl.update(g, dt);
     JHS.Sheep.update(G.sheep, dt);
     JHS.Shepherd.update(G.shep, dt);
+    if (W.idle) W.idle(G, dt);
     JHS.Ambient.update(dt, G.cam, [{ x: G.body.x, y: G.body.y, vx: 0 }]);
     JHS.Life.update(dt, G.cam);
     if (!keepCam && G.state === 'title') { G.cam.x = Math.max(960, G.body.x + 192); G.cam.y = G.body.y - JHS.Camera.FRAME_Y; }
@@ -984,7 +987,7 @@
     ctx.imageSmoothingQuality = 'high';
     if (G.state === 'loading') {
       screenSet(ctx);
-      UI.drawLoading(ctx, G.load.frac, G.load.label);
+      UI.drawLoading(ctx, G.load.frac, G.load.label, W && { kicker: W.kicker, title: W.title + ' ' + W.subtitle });
     } else if (G.state === 'sheet') {
       screenSet(ctx);
       JHS.Sheet.draw(ctx);
@@ -992,7 +995,7 @@
       drawScene(ctx);
       screenSet(ctx);
       if (G.state === 'play' || G.state === 'pause') {
-        UI.drawHUD(ctx, dt, { found: G.items.found, total: G.items.seeds.length, page: G.items.page, flowers: G.items.picked, flowersTotal: G.items.flowers.length });
+        UI.drawHUD(ctx, dt, W.hud ? W.hud(G) : { found: G.items.found, total: G.items.seeds.length, page: G.items.page, flowers: G.items.picked, flowersTotal: G.items.flowers.length });
         UI.drawFly(ctx, dt, worldToScreen);
         UI.drawPrompt(ctx, worldToScreen, G.touchMode);
         UI.drawDialogue(ctx, worldToScreen);
@@ -1000,8 +1003,8 @@
         UI.drawPage(ctx, dt);
         if (G.touchMode && G.state === 'play' && !G.cine) UI.drawTouch(ctx, Input);
       }
-      if (G.state === 'title') UI.drawTitle(ctx, G.stateT, G.menu, G.touchMode);
-      if (G.state === 'pause') UI.drawPause(ctx, G.menu, JHS.Sound.on);
+      if (G.state === 'title') UI.drawTitle(ctx, G.stateT, G.menu, G.touchMode, { kicker: W.kicker, title: W.title, subtitle: W.subtitle, tag: W.tag, items: titleItems() });
+      if (G.state === 'pause') UI.drawPause(ctx, G.menu, pauseItems());
       if (G.state === 'end') UI.drawEnd(ctx, G.stateT, G.endInfo);
     }
     screenSet(ctx);
@@ -1010,13 +1013,17 @@
     ctx.restore();
   }
 
+  // Lo que los guiones de mundo pueden usar del núcleo.
+  JHS.Core = { setState, walkTo, respawn, newGame, loadWorld, goWorld, startPlay, worldToScreen, supportedAt };
+
   // ------------------------------------------------------------------ pruebas automáticas
   JHS.debug = {
     G,
     teleport(x) { const w = G.world; const y = w.groundY(x) ?? w.bridgeY(x, true) ?? 700; G.body.x = x; G.body.y = y; G.body.vx = 0; G.body.vy = 0; G.body.grounded = true; G.body.climbing = null; G.body.pushing = null; G.cam.x = x + 192; G.cam.y = y - JHS.Camera.FRAME_Y; G.cam.refY = y; G.sheepWaiting = false; const sx = x - 100; G.sheepCtl.reset(sx, w.groundY(sx) ?? w.bridgeY(sx, true) ?? y); },
     play() { setState('play'); UI.hint = { t: 0, show: true }; },
-    state() { return { state: G.state, x: G.body && G.body.x, y: G.body && G.body.y, mode: G.body && G.body.mode, seeds: G.items && G.items.found, sheep: G.sheep && [G.sheep.x, G.sheep.y, G.sheepCtl.mode], shepherd: G.shepCtl && [G.shepCtl.i, G.shepCtl.state] }; },
+    state() { return { world: W && W.id, state: G.state, x: G.body && G.body.x, y: G.body && G.body.y, mode: G.body && G.body.mode, seeds: G.items && G.items.found, sheep: G.sheep && [G.sheep.x, G.sheep.y, G.sheepCtl.mode], shepherd: G.shepCtl && [G.shepCtl.i, G.shepCtl.state] }; },
     setState,
+    loadWorld: (id) => loadWorld(id, true),
     memory() { const out = {}; let px = 0; for (const k in G.layers) { const m = G.layers[k].memory(); px += m; out[k] = Math.round(m * 4 / 1048576); } out.total = Math.round(px * 4 / 1048576); return out; },
   };
 

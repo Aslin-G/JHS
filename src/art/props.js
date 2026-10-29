@@ -160,7 +160,7 @@
         g.globalAlpha = 0.7; g.strokeStyle = P.inkSoft; g.lineWidth = 0.5; g.stroke(); g.globalAlpha = 1;
         Paint.splatter(g, cx + 0.5, cy + 0.6, 2, 1.5, 6, P.amber, { alpha: 0.85, rmin: 0.3, rmax: 0.7, seed });
       } else {
-        const col = kind === 'lilac' ? P.flowerLilac : P.flowerYellow;
+        const col = kind === 'lilac' ? P.flowerLilac : kind === 'pink' ? '#e6a1b2' : P.flowerYellow;
         for (let i = 0; i < 6; i++) {
           const a = (i / 6) * U.TAU;
           g.fillStyle = col;
@@ -210,7 +210,21 @@
 
   // ---------------------------------------------------------------- árbol (§52)
   // Olivo de tronco retorcido con copa hecha de cientos de toques de verde amarillento.
+  // Olivo del valle (concepto del Mundo 1): copa más ancha y baja, verde plateado.
+  const OLIVE = { leafLight: '#d7d29c', leafMid: '#a9a56c', leafShade: '#838255', leafDeep: '#5f6040', grassLight: '#c8c58c' };
   function tree(seed, o = {}) {
+    if (o.kind === 'olive') {
+      const keep = {};
+      for (const k in OLIVE) { keep[k] = P[k]; P[k] = OLIVE[k]; }
+      try {
+        const H = o.h || 460;
+        return treeImpl(seed, Object.assign({ cw: H * 1.15, ch: H * 0.5, trunkW: H * 0.09, limbs: 4, lobes: 8 }, o, { kind: null }));
+      } finally { Object.assign(P, keep); }
+    }
+    return treeImpl(seed, o);
+  }
+
+  function treeImpl(seed, o = {}) {
     const rng = U.makeRng(seed);
     const H = o.h || 520, CW = o.cw || H * 0.95, CH = o.ch || H * 0.62;
     const trunkW = o.trunkW || H * 0.07;
@@ -413,5 +427,31 @@
     });
   }
 
-  JHS.Props = { RES, smoothBlob, paintRockShape, rock, grassTuft, flower, tree, woodLimb, branch, bellflower, bouquet };
+  // Flor alta en dos piezas (para que la espiga ceda después del tallo): dedalera rosa o
+  // gordolobo amarillo. Devuelve { stem, head, tip } con tip = punta del tallo.
+  function tallFlower(kind, seed) {
+    const rng = U.makeRng(seed);
+    const h = rng.range(34, 48);
+    const stem = Paint.makeSprite({ w: 36, h: h + 16, ox: 18, oy: h + 6, res: RES * 1.3 }, (g) => {
+      Paint.ink(g, Paint.quadPts(0, 0, rng.range(-3, 3), -h * 0.5, 0, -h, 6), { w: 1.6, color: P.grassDark, alpha: 0.9, seed, taper: 0.15, wobble: 0.2 });
+      for (let i = 0; i < 3; i++) {
+        const sd = i % 2 ? 1 : -1, y = -rng.range(2, h * 0.5);
+        Paint.wash(g, U.spline([[0, y], [sd * 7, y - 6], [sd * 13, y - 4], [sd * 6, y + 1]], 3, true), i ? P.grass : P.grassDark, { layers: 3, alpha: 0.55, amp: 0.4, seed: seed + i, edge: 0.35 });
+      }
+    });
+    const pink = kind === 'foxglove';
+    const head = Paint.makeSprite({ w: 30, h: 40, ox: 15, oy: 36, res: RES * 1.3 }, (g) => {
+      Paint.ink(g, [[0, 0], [0, -30]], { w: 1.2, color: P.grassDark, alpha: 0.85, seed: seed + 5, taper: 0.2 });
+      const n = pink ? 7 : 9;
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1), y = -4 - t * 26, side = i % 2 ? 1 : -1, r = (pink ? 3.6 : 2.6) * (1 - t * 0.45);
+        const col = pink ? (t > 0.7 ? '#e9b7c4' : '#d9879f') : (t > 0.75 ? '#c9b25a' : P.flowerYellow);
+        Paint.wash(g, U.blobPoly(side * r * 0.7, y, r, r * (pink ? 1.3 : 0.9), 8, rng, 0.2), col, { layers: 2, alpha: 0.85, amp: 0.2, seed: seed + 10 + i, edge: 0.4, core: 1 });
+        if (pink) { g.fillStyle = U.rgba('#9b4d64', 0.6); g.beginPath(); g.arc(side * r * 0.6, y + r * 0.5, 0.7, 0, U.TAU); g.fill(); }
+      }
+    });
+    return { stem, head, tip: [0, -h] };
+  }
+
+  JHS.Props = { RES, smoothBlob, paintRockShape, rock, grassTuft, flower, tallFlower, tree, woodLimb, branch, bellflower, bouquet };
 })(window.JHS = window.JHS || {});

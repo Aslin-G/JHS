@@ -22,7 +22,11 @@
 
   A.init = function (L, world) {
     const S = A.spr;
+    const cfg = L.ambient || {};
     A.world = world;
+    A.parts = []; A.decorBack = []; A.decorFront = []; A.trees = []; A.butterflies = []; A.birds = []; A.groundBirds = [];
+    A.branches = []; A.motes = []; A.t = 0; A.landOn = null; A.extraWind = 0; A.scareAt = null;
+    A.gusts = makeGusts(cfg.seed || 77);
     S.dust = [blot(P.pathShade, 9), blot(P.earth, 7), blot(P.rockLight, 8)];
     S.gold = blot('#ffe3a0', 9, true);
     S.light = blot('#fff3cf', 12, true);
@@ -46,23 +50,30 @@
       g.strokeStyle = P.grass; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-3, 3); g.quadraticCurveTo(0, -1, 3, -3); g.stroke();
     });
 
-    // hierba y flores repartidas por la superficie del sendero
+    // hierba y flores repartidas por la superficie del sendero, en grupos (cada mata comparte
+    // la fase de su grupo, con un pequeño desfase propio)
     const tufts = [], flowers = [];
     for (let i = 0; i < 14; i++) tufts.push(Props.grassTuft(2000 + i));
-    const kinds = ['daisy', 'daisy', 'daisy', 'yellow', 'lilac', 'daisy', 'yellow', 'daisy'];
+    const kinds = cfg.flowerKinds || ['daisy', 'daisy', 'daisy', 'yellow', 'lilac', 'daisy', 'yellow', 'daisy'];
     for (let i = 0; i < 16; i++) flowers.push(Props.flower(kinds[i % kinds.length], 2100 + i));
-    const rng = U.makeRng(2200);
+    const tall = cfg.tallFlowers ? cfg.tallFlowers.map((k, i) => Props.tallFlower(k, 2150 + i)) : [];
+    const dense = cfg.flowerDense || ((x) => x < 1400 || x > 7600 || (x > 5300 && x < 5700));
+    const avoid = cfg.avoid || [];
+    const rng = U.makeRng(cfg.seed || 2200);
+    const groupPh = (x) => U.hash2(Math.floor(x / 130), 3, 17) * 6.28;
     for (const seg of L.ground) {
       for (const run of JHS.Scenery.surfaceRuns(seg)) {
         const x0 = run[0][0], x1 = run[run.length - 1][0];
-        for (let x = Math.max(x0, -300) + rng.range(0, 30); x < x1 - 10; x += rng.range(20, 46)) {
+        for (let x = Math.max(x0, -300) + rng.range(0, 30); x < x1 - 10; x += rng.range(cfg.spacing ? cfg.spacing[0] : 20, cfg.spacing ? cfg.spacing[1] : 46)) {
           const y = JHS.Scenery.surfaceAt(run, x);
-          if (y == null) continue;
-          const nearFlowers = x < 1400 || x > 7600 || (x > 5300 && x < 5700) || rng.chance(0.25);
-          const isFlower = nearFlowers && rng.chance(0.42);
+          if (y == null || avoid.some(([a, b]) => x > a && x < b)) continue;
+          const nearFlowers = dense(x) || rng.chance(0.25);
+          const isFlower = nearFlowers && rng.chance(cfg.flowerChance || 0.42);
           const front = rng.chance(0.3);
-          const item = { x, y: y + (front ? 5 : 0), spr: isFlower ? rng.pick(flowers) : rng.pick(tufts), ph: rng.range(0, 6.28),
-            k: rng.range(0.6, 1.2), s: front ? rng.range(0.7, 0.9) : rng.range(0.85, 1.15), front, bend: 0, bendV: 0, flower: isFlower };
+          const isTall = isFlower && tall.length && !front && rng.chance(0.35);
+          const item = { x, y: y + (front ? 5 : 0), spr: isTall ? null : isFlower ? rng.pick(flowers) : rng.pick(tufts), tall: isTall ? rng.pick(tall) : null,
+            ph: groupPh(x) + rng.range(-0.5, 0.5), k: rng.range(0.6, 1.2), s: front ? rng.range(0.7, 0.9) : rng.range(0.85, 1.15), front, bend: 0, bendV: 0,
+            flower: isFlower, flex: isTall ? 0.8 : isFlower ? 0.85 : 1, delay: isFlower ? 0.08 : 0 };
           (front ? A.decorFront : A.decorBack).push(item);
         }
       }
@@ -72,15 +83,15 @@
     A.decorAll = A.decorBack.concat(A.decorFront).sort((a, b) => a.x - b.x);
 
     // árboles: sprites grandes que se mecen apenas desde la base
-    for (const t of L.decor.trees) {
-      const spr = Props.tree(t.seed, { h: t.h });
+    for (const t of (L.decor && L.decor.trees) || []) {
+      const spr = Props.tree(t.seed, { h: t.h, kind: t.kind });
       A.trees.push({ x: t.x, y: world.groundY(t.x), spr, ph: t.seed, behind: t.behind, shakeT: 0 });
     }
     // ramas‑plataforma del árbol
-    for (const l of L.ledges) {
+    for (const l of L.ledges || []) {
       if (l.kind !== 'branch') continue;
-      const leftSide = l.x1 < 2790;
-      const trunkX = 2790;
+      const trunkX = l.trunkX || 2790;
+      const leftSide = l.x1 < trunkX;
       const pts = leftSide
         ? [[trunkX - 10, l.y + 26], [l.x1 - 30, l.y + 8], [U.lerp(l.x0, l.x1, 0.45), l.y + 3], [l.x0 - 18, l.y + 2]]
         : [[trunkX + 8, l.y + 30], [l.x0 + 30, l.y + 9], [U.lerp(l.x0, l.x1, 0.55), l.y + 3], [l.x1 + 18, l.y + 1]];
@@ -88,9 +99,11 @@
     }
 
     // mariposas cerca de las flores
-    const bxs = [600, 1250, 2400, 5500, 7700, 8000, 8250];
+    const bxs = cfg.butterflies || [600, 1250, 2400, 5500, 7700, 8000, 8250];
     bxs.forEach((bx, i) => {
-      const hy = world.groundY(bx) - 60;
+      const gy = world.groundY(bx);
+      if (gy == null) return;
+      const hy = gy - 60;
       A.butterflies.push({ hx: bx, hy, x: bx, y: hy, ph: i * 1.7, col: i % 2 ? P.flowerYellow : '#e9a35c', mode: 'wander', t: 0, vx: 0, vy: 0, ang: 0 });
     });
     // pajarillos posados en el sendero o en las rocas
@@ -104,10 +117,45 @@
       }
     }
     // pájaros lejanos (en el espacio de la capa media)
-    for (let i = 0; i < 5; i++) A.birds.push({ x: rng.range(0, 4000), y: rng.range(180, 420), v: rng.range(30, 55), ph: rng.range(0, 6), s: rng.range(0.6, 1) });
+    for (let i = 0; i < (cfg.farBirds == null ? 5 : cfg.farBirds); i++) A.birds.push({ x: rng.range(0, 4000), y: rng.range(180, 420), v: rng.range(30, 55), ph: rng.range(0, 6), s: rng.range(0.6, 1) });
     // motas de polen que flotan en la luz
-    for (let i = 0; i < 46; i++) A.motes.push({ x: rng.range(-1100, 1100), y: rng.range(-600, 500), ph: rng.range(0, 6.28), s: rng.range(0.3, 0.8), v: rng.range(6, 16) });
+    for (let i = 0; i < (cfg.motes == null ? 46 : cfg.motes); i++) A.motes.push({ x: rng.range(-1100, 1100), y: rng.range(-600, 500), ph: rng.range(0, 6.28), s: rng.range(0.3, 0.8), v: rng.range(6, 16) });
   };
+
+  // ------------------------------------------------------------------ viento
+  // Ráfagas con calendario propio: duraciones e intervalos distintos y, a veces, una calma larga.
+  // El viento sopla siempre hacia la derecha y viaja por el paisaje: cada cosa lo recibe un poco
+  // más tarde según su posición y su masa (la hierba antes que los arbustos, éstos antes que los
+  // árboles), así nada se mueve en bloque ni en un bucle evidente.
+  const GUST_V = 260; // velocidad a la que viaja la ráfaga (unidades/s)
+  function makeGusts(seed) {
+    const rng = U.makeRng(seed * 31 + 7);
+    const list = [];
+    let t = -6;
+    while (t < 3600) {
+      const calm = rng.chance(0.22);
+      t += calm ? rng.range(9, 15) : rng.range(2.5, 8);
+      const dur = rng.range(1.4, 3.6), peak = rng.range(0.45, 1.15);
+      list.push({ t0: t, dur, peak });
+      t += dur * 0.6;
+    }
+    return list;
+  }
+  // Intensidad de ráfaga (0…~1.2) en el instante t, con forma suave de subida y caída.
+  function gustAt(t) {
+    const L = A.gusts;
+    if (!L || !L.length) return 0;
+    let lo = 0, hi = L.length - 1;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (L[m].t0 <= t) lo = m; else hi = m - 1; }
+    let g = 0;
+    for (let i = Math.max(0, lo - 1); i <= Math.min(L.length - 1, lo + 1); i++) {
+      const q = (t - L[i].t0) / L[i].dur;
+      if (q > 0 && q < 1) g += L[i].peak * Math.pow(Math.sin(Math.PI * q), 2) * (q < 0.3 ? 1 : 1 - 0.25 * (q - 0.3));
+    }
+    return g;
+  }
+  // Ráfaga tal como llega a la posición x, con el retraso propio del material.
+  A.gustAt = function (x, delay = 0) { return gustAt(A.t - delay - (x - (A.camX || 0)) / GUST_V); };
 
   A.burst = function (kind, x, y, n, o = {}) {
     for (let i = 0; i < n; i++) {
@@ -143,8 +191,9 @@
     A.t += dt;
     A.actors = actors || [];
     // ráfagas de viento suaves (el pelo, la hierba y los pétalos las comparten)
-    A.gust = U.damp(A.gust, Math.max(0, Math.sin(A.t * 0.23) * Math.sin(A.t * 0.61 + 1)), 0.8, dt);
-    A.wind = 0.6 + A.gust * 1.8 + (A.extraWind || 0);
+    A.camX = cam.x;
+    A.gust = gustAt(A.t);
+    A.wind = 0.35 + A.gust * 1.7 + (A.extraWind || 0);
     for (let i = A.parts.length - 1; i >= 0; i--) {
       const p = A.parts[i];
       p.life += dt;
@@ -303,23 +352,51 @@
   }
 
   // ------------------------------------------------------------------ dibujo
-  // Mecer un sprite anclado en su base (cizalla), sin deformarlo.
+  // Mecer un sprite girándolo sobre su base: rígido, sin deformar el papel ni la línea.
   function sway(ctx, spr, x, y, amt, s = 1) {
     ctx.save();
     ctx.translate(x, y);
-    ctx.transform(1, 0, amt, 1, 0, 0);
+    ctx.rotate(amt);
     ctx.scale(s, s);
     ctx.drawImage(spr.c, -spr.ox, -spr.oy, spr.w, spr.h);
     ctx.restore();
   }
 
+  // Inclinación de una planta: respiración mínima de su grupo + la ráfaga que le llega.
+  function plantAngle(d, delay) {
+    const t = A.t - delay;
+    const breathe = Math.sin(t * 1.3 + d.ph) * 0.012 + Math.sin(t * 2.9 + d.ph * 1.7) * 0.006;
+    const g = A.gustAt(d.x, d.delay + delay);
+    const flutter = g * Math.sin(t * 7 + d.ph * 3) * 0.02;
+    return ((breathe + flutter) * (1 + (A.extraWind || 0) * 0.5) + g * 0.16 + (A.extraWind || 0) * 0.05) * d.flex * d.k + d.bend;
+  }
+
   function drawDecor(ctx, list, view) {
-    const t = A.t;
     for (const d of list) {
       if (d.x < view.x0 - 60 || d.x > view.x1 + 60) continue;
-      const amt = (Math.sin(t * 1.7 + d.ph) * 0.06 + Math.sin(t * 3.1 + d.ph * 2) * 0.025) * d.k * (0.6 + A.wind * 0.35) + d.bend;
-      sway(ctx, d.spr, d.x, d.y, amt, d.s);
+      if (d.tall) { drawTall(ctx, d); continue; }
+      const amt = plantAngle(d, 0);
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate(amt);
+      ctx.scale(d.s, d.s);
+      ctx.drawImage(d.spr.c, -d.spr.ox, -d.spr.oy, d.spr.w, d.spr.h);
+      ctx.restore();
     }
+  }
+
+  // Flor alta en dos piezas: el tallo se inclina y la flor le sigue con un poco de retraso.
+  function drawTall(ctx, d) {
+    const T = d.tall, a1 = plantAngle(d, 0), a2 = plantAngle(d, 0.16);
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    ctx.scale(d.s, d.s);
+    ctx.rotate(a1);
+    ctx.drawImage(T.stem.c, -T.stem.ox, -T.stem.oy, T.stem.w, T.stem.h);
+    ctx.translate(T.tip[0], T.tip[1]);
+    ctx.rotate((a2 - a1) * 1.6);
+    ctx.drawImage(T.head.c, -T.head.ox, -T.head.oy, T.head.w, T.head.h);
+    ctx.restore();
   }
 
   A.drawTrees = function (ctx, view, behindOnly) {
@@ -327,7 +404,8 @@
       if (!!tr.behind !== behindOnly) continue;
       if (tr.x + tr.spr.w < view.x0 || tr.x - tr.spr.w > view.x1) continue;
       const shake = tr.shakeT > 0 ? Math.sin(A.t * 31) * 0.018 * Math.min(1, tr.shakeT) : 0;
-      const amt = Math.sin(A.t * 0.8 + tr.ph) * 0.004 * (0.6 + A.wind * 0.5) + shake;
+      // los árboles reciben la ráfaga tarde y apenas la acusan
+      const amt = Math.sin(A.t * 0.8 + tr.ph) * 0.0025 + A.gustAt(tr.x, 0.5) * 0.006 + shake;
       sway(ctx, tr.spr, tr.x, tr.y + 6, amt);
     }
     if (!behindOnly) for (const b of A.branches) ctx.drawImage(b.spr.c, -b.spr.ox, -b.spr.oy, b.spr.w, b.spr.h);

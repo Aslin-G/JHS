@@ -9,6 +9,12 @@
   const C0 = { x: 960, y: 675 };
   const CAM_RANGE = { x0: 960, x1: 9300, y0: -140, y1: 720, zMin: 0.68 };
 
+  // Cada mundo fija su punto de composición C0 (la cámara al empezar) y el recorrido de la cámara.
+  function setFrame(c0, range) {
+    Object.assign(C0, c0);
+    Object.assign(CAM_RANGE, range);
+  }
+
   function layerZoom(p, z) { return 1 + (z - 1) * p; }
 
   // Rectángulo visible en espacio S para la cámara dada.
@@ -152,5 +158,5 @@
     return [(sx - (r.x0 + r.x1) / 2) * r.zL + 960, (sy - (r.y0 + r.y1) / 2) * r.zL + 540];
   }
 
-  JHS.Layers = { C0, CAM_RANGE, Layer, boundsFor, viewRectS, applyLayer, applyWorld, layerToScreen, layerZoom, paintOnce };
+  JHS.Layers = { C0, CAM_RANGE, setFrame, Layer, boundsFor, viewRectS, applyLayer, applyWorld, layerToScreen, layerZoom, paintOnce };
 })(window.JHS = window.JHS || {});
